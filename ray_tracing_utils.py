@@ -4,14 +4,23 @@ import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 from math import ceil
 import random
-from ray_tracing_constants import *
+import ray_tracing_constants as rtc
 
 
 class TIP:
-    def __init__(self,k,index,s,r_1_hat,r_2_hat):
-        self.delta = delta
-        self.eps = eps
-        self.gamma = np.sqrt((self.delta/2)**2 + self.eps**2)
+    """
+    stores the attributes of TIPs
+    k (int): k family to identify if TIP lies on the r_0, r_1 or r_2 line
+    s (float): scalar distance from p_h along xi_h
+    index (int): the order (in ascending order) of TIPs
+    coord (np.array): location of TIPs w.r.t origin
+    """
+    def __init__(self,k,index,s,p_h,xi_h):
+        self.delta = rtc.delta
+        self.eps = rtc.eps
+        self.r_1_hat = rtc.r_1_hat
+        self.r_2_hat = rtc.r_2_hat
+        self.gamma = rtc.gamma
         self.i = np.array([1,0,0])
         self.j = np.array([0,1,0])
         self.k = np.array([0,0,1])
@@ -21,8 +30,6 @@ class TIP:
         self.p_h = p_h
         self.xi_h = xi_h
         self.coord = self.p_h + self.s*self.xi_h
-        self.r_1_hat = r_1_hat
-        self.r_2_hat = r_2_hat
         
         if self.k == 1:
             d_k =  np.dot(self.coord,self.r_1_hat)/np.dot(self.j,self.r_1_hat)
@@ -34,21 +41,55 @@ class TIP:
 
         self.d_k = d_k
 
-class RayTracing:
+class WaveFacet:
     """
-    get the vertices where ray intersects the wave facet
+    obtains the attributes of wave facet
+    nodes (tuple of np.array): triple tuple of array of nodes that define the triad vertices
+    norm (np.array): (3,) array of unit vector of the normal of the wave triad facets
     """
-    def __init__(self,n,n_dist):
-        
+    def __init__(self,nodes):
+        self.nodes = nodes
+        self.norm = self.get_norm()
+    
+    def get_norm(self):
+        n1 = np.cross((self.nodes[2] - self.nodes[0]),(self.nodes[1] - self.nodes[0]))
+        n1 = n1/np.linalg.norm(n1)
+
+        if np.dot(n1,np.array([0,0,1])) < 0:
+            sign = -1
+        else:
+            sign = 1
+
+        n1 = sign*n1
+        return n1
+    
+class HexagonalDomain:
+    """
+    computes the hexagonal domain 
+    """
+    def __init__(self,n):
+        """
+        n (int): order of hexagonal grid
+        p_h (np.array): point where projected light ray enters the hexagonal domain
+        p_prime (np.array): point where light ray enters the hexagonal domain
+        xi_h (np.array): a unit vector of projected ray path 
+        xi_prime (np.array): a vector of ray path
+        vertices_dict (dict): where keys are the vertices coordinates (str); values are the unique index (int) for each vertex
+        nodes_dict (dict): where keys are the unique index (int) in vertices_dict; and values are the (3,) np.array of the nodes coordinate 
+        """
         self.i = np.array([1,0,0])
         self.j = np.array([0,1,0])
         self.k = np.array([0,0,1])
         self.n = n
-        self.delta = delta
-        self.eps = eps
-        self.gamma = np.sqrt((self.delta/2)**2 + self.eps**2)
-        self.p_h = p_h
-        self.xi_h = xi_h
+        self.delta = rtc.delta
+        self.eps = rtc.eps
+        self.gamma = rtc.gamma
+
+        # self.p_h = p_h
+        # self.xi_h = xi_h
+        # self.p_prime = p_prime
+        # self.xi_prime = xi_prime
+
         self.r_11 = self.delta/(2*self.gamma)
         self.r_21 = self.eps/self.gamma
         self.r_12 = -1*self.r_11
@@ -58,7 +99,6 @@ class RayTracing:
         self.r_1_hat = np.array([-self.r_21,self.r_11,0])
         self.r_2_hat = np.array([-self.r_22,self.r_12,0])
 
-        self.n_dist = n_dist
         self.x, self.y = self.get_hexagonal_vertices()
         self.vertices_dict = self.get_vertices_index()
 
@@ -67,7 +107,6 @@ class RayTracing:
         creates the hexagonal grid based on the order (n) supplied
         """
         L = 2*self.n+1 #largest number of vertices at the center
-        i_0 = np.linspace(-self.n,self.n,num=L)
         x = []
         y = []
         for i in range(self.n+1): #inclusive of n
@@ -108,18 +147,114 @@ class RayTracing:
         
         return vertices_dict
 
+    def get_nodes(self,n_dist):
+        """
+        n_dist (list of np.array): height of wave surface at each vertex
+        get the nodes (x,y,z) from the vertices (x,y,0)
+        """
+        nodes_dict = {k: None for k in self.vertices_dict.values()}
+        for index in self.vertices_dict.values():
+            z = n_dist[index]
+            nodes_dict[index] = np.array([self.x[index],self.y[index],z])
+        
+        return nodes_dict
+
+class RayTracing:
+    """
+    computes
+    """
+    def __init__(self,p_h,p_prime,xi_h,xi_prime,t,HD):
+        """
+        p_h (np.array): point where projected light ray enters the hexagonal domain
+        p_prime (np.array): point where light ray enters the hexagonal domain
+        xi_h (np.array): a unit vector of projected ray path 
+        xi_prime (np.array): a vector of ray path
+        t (np.array): target point where ray path is directed towards the hexagonal domain
+        HD (class HexagonalDomain): class that contains attributes of the surface wave facet
+        """
+        self.i = np.array([1,0,0])
+        self.j = np.array([0,1,0])
+        self.k = np.array([0,0,1])
+        self.delta = rtc.delta
+        self.eps = rtc.eps
+        self.gamma = rtc.gamma
+
+        self.p_h = p_h
+        self.xi_h = xi_h
+        self.p_prime = p_prime
+        self.xi_prime = xi_prime
+        self.t = t
+        self.HD = HD
+
+        self.r_11 = self.delta/(2*self.gamma)
+        self.r_21 = self.eps/self.gamma
+        self.r_12 = -1*self.r_11
+        self.r_22 = self.r_21*1
+        self.r_1 = np.array([self.r_11,self.r_21,0])
+        self.r_2 = np.array([self.r_12,self.r_22,0])
+        self.r_1_hat = np.array([-self.r_21,self.r_11,0])
+        self.r_2_hat = np.array([-self.r_22,self.r_12,0])
+
+    #     self.x, self.y = self.get_hexagonal_vertices()
+    #     self.vertices_dict = self.get_vertices_index()
+
+    # def get_hexagonal_vertices(self):
+    #     """
+    #     creates the hexagonal grid based on the order (n) supplied
+    #     """
+    #     L = 2*self.n+1 #largest number of vertices at the center
+    #     x = []
+    #     y = []
+    #     for i in range(self.n+1): #inclusive of n
+    #         x0 = np.linspace(-self.n+i*self.delta/2,self.n-i*self.delta/2,num=L-i)
+    #         y0 = np.repeat(np.array([i]),x0.shape[0],axis=0)
+    #         x.append(x0)
+    #         y.append(y0*self.eps)
+        
+    #     y = y + ([i*-1 for i in y[1:]])
+    #     x = x + (x[1:])
+    #     x = np.concatenate(x)
+    #     y = np.concatenate(y)
+
+    #     plt.figure()
+    #     plt.plot(x,y,'o')
+    #     plt.show()
+    #     return x,y
+
+    # def get_vertices_index(self):
+    #     """
+    #     returns a dict where the i,j tuple vertices and they are unique, and values are the indices corresponding to the x,y array
+    #     so that we can search for the indices quickly using the i,j tuple information
+    #     """
+    #     # vertices list of the triads on the horizontal surface
+
+    #     vertices_list = []
+    #     for i,j in zip(self.x,self.y):
+    #         vertices_list.append(np.array([i,j,0]))
+    #     vertices_list
+
+    #     #compute i and j
+    #     vertices_dict = {} #where keys are the i,j tuple vertices and they are unique, and values are the indices corresponding to the array
+    #     # so that we can search for the indices quickly using the i,j tuple information
+    #     for index,v in enumerate(vertices_list):
+    #         i = (v[0]/self.delta)
+    #         j = (v[1]/self.eps)
+    #         vertices_dict['{:.1f},{:.1f}'.format(i,j)] = index
+        
+    #     return vertices_dict
+
     def get_TIPs(self):
         s_k = lambda c,r_k_hat: (np.dot(2*c*self.eps*self.j, r_k_hat) - np.dot(self.p_h,r_k_hat))/np.dot(self.xi_h,r_k_hat)
         s_0 = lambda c: (c*self.eps - np.dot(self.p_h,self.j))/np.dot(self.xi_h, self.j)
         s_j_dict = {k: [] for k in range(0,3)} #where keys are the k family and values are the associated s_k
         
-        for c in range(-self.n,self.n+1):
+        for c in range(-self.HD.n,self.HD.n +1):
             for k in range(0,3):
                 if k == 1:
-                    r_k_hat = r_1_hat
+                    r_k_hat = self.r_1_hat
                     s_j_dict[k].append(s_k(c,r_k_hat))
                 elif k == 2:
-                    r_k_hat = r_2_hat
+                    r_k_hat = self.r_2_hat
                     s_j_dict[k].append(s_k(c,r_k_hat))
                 else:
                     s_j_dict[k].append(s_0(c))
@@ -129,7 +264,7 @@ class RayTracing:
         s_j_dict = {k:[i for i in s_j_dict[k] if i>=0] for k in s_j_dict.keys()} #filter s values >=0
         s_j_dict = {k:s_j_dict[k][:np.argmin(s_j_dict[k])+1] for k in s_j_dict.keys()} # values are sorted in descending manner, select values until the minimum positive value
         ordered_TIPs = sorted([(k,i) for k,v in s_j_dict.items() for i in v],key=lambda x: x[1]) #list of tuples, where first element represents the k family, and 2nd element represents the associated s_j value
-        ordered_TIPs = [TIP(k,i,s,self.p_h,self.xi_h) for i,(k,s) in enumerate(ordered_TIPs)]
+        ordered_TIPs = [TIP(k,index,s,self.p_h,self.xi_h) for index,(k,s) in enumerate(ordered_TIPs)]
         return ordered_TIPs
 
     def TIP_vertices(self,TIP_0,TIP_1):
@@ -266,7 +401,6 @@ class RayTracing:
         """ 
         intersect_vertices_list (list of np.arrays): Triad Vertices that intersect with ray path
         vertices_list (list of np.arrays): Triad vertices of the hexagonal domain
-        n_dist (list of float): random heights at the triad vertices
         """
         nodes_list = []
         for triplets in intersect_vertices_list:
@@ -275,10 +409,11 @@ class RayTracing:
                 i = (a[0]/self.delta)
                 j = (a[1]/self.eps)
                 k = '{:.1f},{:.1f}'.format(i,j)
-                if k in self.vertices_dict.keys():
-                    index = self.vertices_dict[k]
-                    n = self.n_dist[index]
-                    v = a + np.array([0,0,n])
+                if k in self.HD.vertices_dict.keys(): #to ensure that we only consider vertices within the hexagonal domain
+                    index = self.HD.vertices_dict[k]
+                    v = self.HD.nodes_dict[index]
+                    # n = self.HD.n_dist[index]
+                    # v = a + np.array([0,0,n])
                     nodes.append(v)
             if len(nodes) == 3: #remove vertices tha are outside the hexagonal domain
                 nodes_list.append(nodes)
@@ -286,17 +421,36 @@ class RayTracing:
         return nodes_list
     
 
-    def get_normal_facet(v_list):
+    def get_normal_facet(self,intersect_vertices_list):
         """
-        v_list (list): nodes of v_1,v_2,v_3 (in order)
+        intersect_vertices_list (list of tuple of np.arrays): Triad Vertices that intersect with ray path
         """
-        n1 = np.cross((v_list[2] - v_list[0]),(v_list[1] - v_list[0]))
-        n1 = n1/np.linalg.norm(n1)
+        # v_list (list): nodes of v_1,v_2,v_3 (in order)
+        nodes_list = self.determine_nodes(intersect_vertices_list)
+        
+        facets = []
+        for v_list in nodes_list:
+            WF = WaveFacet(v_list)
+            facets.append(WF)
+        
+        return facets
 
-        if np.dot(n1,np.array([0,0,1])) < 0:
-            sign = -1
-        else:
-            sign = 1
+    def get_intercepted_facets(self,WaveFacet_list,ordered_TIPs):
+        """
+        given the list of projected facets where TIPs lie on, get the facet where xi_prime intercepts with the wave facet
+        WaveFacet_list (list of WaveFacet class): contains the attributes - nodes, norm (arranged in order of ordered_TIPs)
+        ordered_TIPs (list of TIP class): TIPs ordered in order of s(j) from p_h along direction xi_h
+        """
+        s_q = lambda v_1,norm: np.dot((v_1 - self.p_prime),norm)/np.dot(self.xi_prime,norm)
+        s_q_list = []
+        for WF in WaveFacet_list:
+            s = s_q(WF.nodes[0], WF.norm) #where WF.nodes[0] == v_1
+            s_min = np.dot(self.xi_prime,self.xi_h)
+            s_q_list.append(s*s_min)
 
-        n1 = sign*n1
-        return n1
+        normal_facets_index = []
+        for i in range(len(s_q_list)):
+            if (s_q_list[i] > ordered_TIPs[i].s) and (s_q_list[i] < ordered_TIPs[i+1].s):
+                normal_facets_index.append(i)
+        
+        return [WaveFacet_list[i] for i in normal_facets_index]

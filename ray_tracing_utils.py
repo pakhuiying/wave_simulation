@@ -5,6 +5,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from math import ceil
 import random
 import ray_tracing_constants as rtc
+from collections import deque #to implement stack
 
 
 class TIP:
@@ -62,7 +63,28 @@ class WaveFacet:
 
         n1 = sign*n1
         return n1
+
+class DaughterRay:
+    """
+    returns the attributes of a daughter ray
+    """
+    def __init__(self,theta_r,theta_t,xi_r,xi_t):
+        self.theta_r = theta_r
+        self.theta_t = theta_t
+        self.xi_r = xi_r
+        self.xi_t = xi_t
+        self.fresnel_reflectance = self.get_fresnel_reflectance()
+        self.fresnel_transmittance = 1- self.fresnel_reflectance
+
+    def get_fresnel_reflectance(self):
+        """
+        DR (DaughterRay class)
+        """
+        reflectance_theta_prime = 0.5*((np.sin(self.theta_r - self.theta_t)/np.sin(self.theta_r+self.theta_t))**2 + (np.tan(self.theta_r - self.theta_t)/np.tan(self.theta_r+self.theta_t))**2)
+        return reflectance_theta_prime #r(\xi_prime \cdot n)
     
+
+
 class HexagonalDomain:
     """
     computes the hexagonal domain 
@@ -454,3 +476,31 @@ class RayTracing:
                 normal_facets_index.append(i)
         
         return [WaveFacet_list[i] for i in normal_facets_index]
+
+    def get_daughter_ray(self, WF):
+        """
+        WF (a WaveFacet class) where WF belongs to the list of intercepted_facets
+        """
+        m = 4/3 #water index of refraction
+        if np.dot(self.xi_prime, WF.norm) < 0:
+            # air-incident case
+            xi_r = self.xi_prime - 2*np.dot(self.xi_prime,WF.norm)*WF.norm
+            c = np.dot(WF.norm,self.xi_prime) - (np.dot(self.xi_prime,WF.norm)**2 + m**2 -1)**0.5
+            xi_t = (self.xi_prime - c*WF.norm)/m
+            theta_prime = np.arccos(abs(np.dot(self.xi_prime, WF.norm))) #equiv to theta_r
+            theta_t = np.arcsin(np.sin(theta_prime)/m)
+        else:
+            #water incident case
+            xi_r = self.xi_prime - 2*np.dot(self.xi_prime,WF.norm)*WF.norm
+            c = np.dot(m*self.xi_prime,WF.norm) - (np.dot(m*self.xi_prime,WF.norm)**2 - m**2 + 1)**0.5
+            xi_t = m*self.xi_prime - c*WF.norm
+            theta_prime = np.arccos(abs(np.dot(self.xi_prime,WF.norm))) #equiv to theta_r
+            theta_t = np.arcsin(m*np.sin(theta_prime))
+        
+        return DaughterRay(theta_prime,theta_t, xi_r,xi_t)
+
+    
+
+
+
+        

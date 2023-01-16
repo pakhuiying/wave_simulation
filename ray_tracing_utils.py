@@ -185,7 +185,7 @@ class RayTracing:
     """
     computes
     """
-    def __init__(self,p_h,p_prime,xi_h,xi_prime,t,HD):
+    def __init__(self,p_prime,xi_prime,HD,P_prime=1):
         """
         p_h (np.array): point where projected light ray enters the hexagonal domain
         p_prime (np.array): point where light ray enters the hexagonal domain
@@ -193,6 +193,7 @@ class RayTracing:
         xi_prime (np.array): a vector of ray path
         t (np.array): target point where ray path is directed towards the hexagonal domain
         HD (class HexagonalDomain): class that contains attributes of the surface wave facet
+        P_prime (int): unit radiant flux of 1
         """
         self.i = np.array([1,0,0])
         self.j = np.array([0,1,0])
@@ -201,12 +202,13 @@ class RayTracing:
         self.eps = rtc.eps
         self.gamma = rtc.gamma
 
-        self.p_h = p_h
-        self.xi_h = xi_h
+        self.p_h = np.array([p_prime[0],p_prime[1],0])
         self.p_prime = p_prime
         self.xi_prime = xi_prime
-        self.t = t
+        self.xi_h = np.array([self.xi_prime[0],self.xi_prime[1],0])/np.linalg.norm(np.array([self.xi_prime[0],self.xi_prime[1],0]))
+        self.t = self.get_target()
         self.HD = HD
+        self.P_prime = P_prime
 
         self.r_11 = self.delta/(2*self.gamma)
         self.r_21 = self.eps/self.gamma
@@ -217,53 +219,13 @@ class RayTracing:
         self.r_1_hat = np.array([-self.r_21,self.r_11,0])
         self.r_2_hat = np.array([-self.r_22,self.r_12,0])
 
-    #     self.x, self.y = self.get_hexagonal_vertices()
-    #     self.vertices_dict = self.get_vertices_index()
-
-    # def get_hexagonal_vertices(self):
-    #     """
-    #     creates the hexagonal grid based on the order (n) supplied
-    #     """
-    #     L = 2*self.n+1 #largest number of vertices at the center
-    #     x = []
-    #     y = []
-    #     for i in range(self.n+1): #inclusive of n
-    #         x0 = np.linspace(-self.n+i*self.delta/2,self.n-i*self.delta/2,num=L-i)
-    #         y0 = np.repeat(np.array([i]),x0.shape[0],axis=0)
-    #         x.append(x0)
-    #         y.append(y0*self.eps)
-        
-    #     y = y + ([i*-1 for i in y[1:]])
-    #     x = x + (x[1:])
-    #     x = np.concatenate(x)
-    #     y = np.concatenate(y)
-
-    #     plt.figure()
-    #     plt.plot(x,y,'o')
-    #     plt.show()
-    #     return x,y
-
-    # def get_vertices_index(self):
-    #     """
-    #     returns a dict where the i,j tuple vertices and they are unique, and values are the indices corresponding to the x,y array
-    #     so that we can search for the indices quickly using the i,j tuple information
-    #     """
-    #     # vertices list of the triads on the horizontal surface
-
-    #     vertices_list = []
-    #     for i,j in zip(self.x,self.y):
-    #         vertices_list.append(np.array([i,j,0]))
-    #     vertices_list
-
-    #     #compute i and j
-    #     vertices_dict = {} #where keys are the i,j tuple vertices and they are unique, and values are the indices corresponding to the array
-    #     # so that we can search for the indices quickly using the i,j tuple information
-    #     for index,v in enumerate(vertices_list):
-    #         i = (v[0]/self.delta)
-    #         j = (v[1]/self.eps)
-    #         vertices_dict['{:.1f},{:.1f}'.format(i,j)] = index
-        
-    #     return vertices_dict
+    def get_target(self):
+        v = np.array([[rtc.r_1[0],rtc.r_2[0],-self.xi_prime[0]],
+                    [rtc.r_1[1],rtc.r_2[1],-self.xi_prime[1]],
+                    [rtc.r_1[2],rtc.r_2[2],-self.xi_prime[2]]])
+        solve_plane_vector_itxn = np.dot(np.linalg.inv(v),self.p_prime)
+        t = self.p_prime + solve_plane_vector_itxn[2]*self.xi_prime
+        return t
 
     def get_TIPs(self):
         s_k = lambda c,r_k_hat: (np.dot(2*c*self.eps*self.j, r_k_hat) - np.dot(self.p_h,r_k_hat))/np.dot(self.xi_h,r_k_hat)
@@ -475,7 +437,25 @@ class RayTracing:
             if (s_q_list[i] > ordered_TIPs[i].s) and (s_q_list[i] < ordered_TIPs[i+1].s):
                 normal_facets_index.append(i)
         
-        return [WaveFacet_list[i] for i in normal_facets_index]
+        intercepted_facets = [WaveFacet_list[i] for i in normal_facets_index]
+        for wf in intercepted_facets:
+            wf.target = self.get_intercepted_points(wf)
+
+        return intercepted_facets
+
+    def get_intercepted_points(self,WF):
+        """
+        returns the point where xi_prime hits the wave facet surface
+        WF (a WaveFacet class) where WF belongs to the list of intercepted_facets
+        """
+        v_1 = WF.nodes[2] - WF.nodes[0]
+        v_2 = WF.nodes[1] - WF.nodes[0]
+        v = np.array([[v_1[0],v_2[0],-self.xi_prime[0]],
+                    [v_1[1],v_2[1],-self.xi_prime[1]],
+                    [v_1[2],v_2[2],-self.xi_prime[2]]])
+        solve_plane_vector_itxn = np.dot(np.linalg.inv(v),(self.p_prime-WF.nodes[0]))
+        t = self.p_prime + solve_plane_vector_itxn[2]*self.xi_prime
+        return t
 
     def get_daughter_ray(self, WF):
         """

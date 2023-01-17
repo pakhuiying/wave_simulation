@@ -179,6 +179,8 @@ class HexagonalDomain:
             z = n_dist[index]
             nodes_dict[index] = np.array([self.x[index],self.y[index],z])
         
+        self.n_min = np.min(n_dist) #record the min and max of nodes to check if ray is within this vertical range
+        self.n_max = np.max(n_dist)
         return nodes_dict
 
 class RayTracing:
@@ -466,7 +468,8 @@ class RayTracing:
             # air-incident case
             xi_r = self.xi_prime - 2*np.dot(self.xi_prime,WF.norm)*WF.norm
             c = np.dot(WF.norm,self.xi_prime) - (np.dot(self.xi_prime,WF.norm)**2 + m**2 -1)**0.5
-            xi_t = (self.xi_prime - c*WF.norm)/m
+            # xi_t = (self.xi_prime - c*WF.norm)/m
+            xi_t = (self.xi_prime + c*WF.norm)/m
             theta_prime = np.arccos(abs(np.dot(self.xi_prime, WF.norm))) #equiv to theta_r
             theta_t = np.arcsin(np.sin(theta_prime)/m)
         else:

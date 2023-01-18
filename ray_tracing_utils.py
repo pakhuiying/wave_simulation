@@ -80,8 +80,11 @@ class DaughterRay:
         """
         DR (DaughterRay class)
         """
-        reflectance_theta_prime = 0.5*((np.sin(self.theta_r - self.theta_t)/np.sin(self.theta_r+self.theta_t))**2 + (np.tan(self.theta_r - self.theta_t)/np.tan(self.theta_r+self.theta_t))**2)
-        return reflectance_theta_prime #r(\xi_prime \cdot n)
+        if (self.theta_t is not None) and (self.xi_t is not None):
+            reflectance_theta_prime = 0.5*((np.sin(self.theta_r - self.theta_t)/np.sin(self.theta_r+self.theta_t))**2 + (np.tan(self.theta_r - self.theta_t)/np.tan(self.theta_r+self.theta_t))**2)
+            return reflectance_theta_prime #r(\xi_prime \cdot n)
+        else: #if Total Internal Reflection (TIR) occurs
+            return 1
     
 
 
@@ -462,8 +465,11 @@ class RayTracing:
     def get_daughter_ray(self, WF):
         """
         WF (a WaveFacet class) where WF belongs to the list of intercepted_facets
+        if angle of incidence exceeds critical angle, Total Internal Reflection (TIR) will occur --> transmittance = 0
+        returns a DaughterRay class
         """
         m = 4/3 #water index of refraction
+        critical_angle = np.arcsin(1/m) #critical angle for light leaving from denser medium to less dense medium
         if np.dot(self.xi_prime, WF.norm) < 0:
             # air-incident case
             xi_r = self.xi_prime - 2*np.dot(self.xi_prime,WF.norm)*WF.norm
@@ -472,15 +478,22 @@ class RayTracing:
             xi_t = (self.xi_prime + c*WF.norm)/m
             theta_prime = np.arccos(abs(np.dot(self.xi_prime, WF.norm))) #equiv to theta_r
             theta_t = np.arcsin(np.sin(theta_prime)/m)
+
+            return DaughterRay(theta_prime,theta_t, xi_r,xi_t)
         else:
             #water incident case
-            xi_r = self.xi_prime - 2*np.dot(self.xi_prime,WF.norm)*WF.norm
-            c = np.dot(m*self.xi_prime,WF.norm) - (np.dot(m*self.xi_prime,WF.norm)**2 - m**2 + 1)**0.5
-            xi_t = m*self.xi_prime - c*WF.norm
             theta_prime = np.arccos(abs(np.dot(self.xi_prime,WF.norm))) #equiv to theta_r
             theta_t = np.arcsin(m*np.sin(theta_prime))
-        
-        return DaughterRay(theta_prime,theta_t, xi_r,xi_t)
+            xi_r = self.xi_prime - 2*np.dot(self.xi_prime,WF.norm)*WF.norm
+            if theta_prime > critical_angle: #if angle of incidence exceeds critical angle, Total Internal Reflection (TIR) will occur --> transmittance = 0
+                return DaughterRay(theta_prime, None, xi_r,None)
+            else:
+                
+                c = np.dot(m*self.xi_prime,WF.norm) - (np.dot(m*self.xi_prime,WF.norm)**2 - m**2 + 1)**0.5
+                # xi_t = m*self.xi_prime - c*WF.norm
+                xi_t = m*self.xi_prime + c*WF.norm
+
+                return DaughterRay(theta_prime,theta_t, xi_r,xi_t)
 
     
 

@@ -5,7 +5,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from math import ceil
 import random
 import ray_tracing_constants as rtc
-from collections import deque #to implement stack
+
 
 
 class TIP:
@@ -66,15 +66,21 @@ class WaveFacet:
 
 class DaughterRay:
     """
+    theta_r (float): angle of incidence = reflectance (in rad)
+    theta_t (float): angle of refraction (in rad)
+    xi_r (np.array): vector of reflectance
+    xi_t (np.array): vector of transmittance
+    WF (WaveFacet class): wave facet where incident ray intercepts with WaveFacet
     returns the attributes of a daughter ray
     """
-    def __init__(self,theta_r,theta_t,xi_r,xi_t):
+    def __init__(self,theta_r,theta_t,xi_r,xi_t,WF):
         self.theta_r = theta_r
         self.theta_t = theta_t
         self.xi_r = xi_r
         self.xi_t = xi_t
         self.fresnel_reflectance = self.get_fresnel_reflectance()
         self.fresnel_transmittance = 1- self.fresnel_reflectance
+        self.WF = WF
 
     def get_fresnel_reflectance(self):
         """
@@ -184,6 +190,8 @@ class HexagonalDomain:
         
         self.n_min = np.min(n_dist) #record the min and max of nodes to check if ray is within this vertical range
         self.n_max = np.max(n_dist)
+        self.n_dist = n_dist
+        self.nodes_dict = nodes_dict
         return nodes_dict
 
 class RayTracing:
@@ -479,7 +487,7 @@ class RayTracing:
             theta_prime = np.arccos(abs(np.dot(self.xi_prime, WF.norm))) #equiv to theta_r
             theta_t = np.arcsin(np.sin(theta_prime)/m)
 
-            return DaughterRay(theta_prime,theta_t, xi_r,xi_t)
+            return DaughterRay(theta_prime,theta_t, xi_r,xi_t,WF)
         else:
             #water incident case
             theta_prime = np.arccos(abs(np.dot(self.xi_prime,WF.norm))) #equiv to theta_r
@@ -493,10 +501,62 @@ class RayTracing:
                 # xi_t = m*self.xi_prime - c*WF.norm
                 xi_t = m*self.xi_prime + c*WF.norm
 
-                return DaughterRay(theta_prime,theta_t, xi_r,xi_t)
+                return DaughterRay(theta_prime,theta_t, xi_r,xi_t,WF)
 
+    def main(self):
+        """
+        Computes the workflow:
+        1. get TIPs
+        2. check if ray intercepts with any wave facets
+        3. get a list of daughter rays
+        """
+        DR_list = []
+        ordered_TIPs = self.get_TIPs()
+
+        intersect_vertices_list = []
+        for i in range(1,len(ordered_TIPs)):
+            v = self.TIP_vertices(ordered_TIPs[i],ordered_TIPs[i-1])
+            intersect_vertices_list.append(v)
+
+        facets = self.get_normal_facet(intersect_vertices_list) #list of projected facets where TIPs lie on
+        intercepted_facets = self.get_intercepted_facets(facets,ordered_TIPs)
+        if len(intercepted_facets) > 0:
+            for v in intercepted_facets:
+                DR = self.get_daughter_ray(v)
+                DR_list.append(DR)
+
+        return DR_list
+
+def recursive_RayTracing(stack,store_list,HD):
+    if len(stack) == 0:
+        # print('store_list len'.format(len(store_list)))
+        # print("End recursion")
+        return store_list
     
-
-
+    else:
+        print(len(stack))
+        # print("Enter recursion")
+        s_pop = stack.pop() #DR
+        RT = RayTracing(s_pop.WF.target,s_pop.xi_r,HD)
+        dr_list = RT.main()
+        # print('dr_list reflected:{}'.format(len(dr_list)))
+        if len(dr_list) > 0: #push into s if dr_list is not empty
+            # print('push reflected rays')
+            for dr in dr_list:
+                store_list.append(dr)
+                stack.append(dr)
+        
+        if s_pop.xi_t is not None:
+            RT = RayTracing(s_pop.WF.target,s_pop.xi_t,HD)
+            dr_list = RT.main()
+            # print('dr_list refracted:{}'.format(len(dr_list)))
+            if len(dr_list) > 0: #push into s if dr_list is not empty
+                # print('push refracted rays')
+                for dr in dr_list:
+                    store_list.append(dr)
+                    stack.append(dr)
+        # print('Length of list: {}'.format(len(store_list)))
+        # print(store_list)
+        return recursive_RayTracing(stack,store_list,HD)
 
         

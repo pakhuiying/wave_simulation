@@ -6,8 +6,83 @@ from math import ceil
 import random
 import ray_tracing_constants as rtc
 
+class BoundaryPoints:
+    def __init__(self,HD, solar_altitude,step):
+        """
+        HD (HexagonalDomain class)
+        solar_altitude (float): in degrees, angle between horizontal surface to "sun"
+        num_points (int): number of subdivisions to divide the slanted_length/horizontal_length
+            i.e. number of points to generate per surface boundary line
+        # s (np.array): point on the vector
+        # l (float): scaling factor of vector
+        # r_1 is pointing towards +ve i and +ve j direction
+        # r_2 is pointing towards -ve i and +ve j direction
+        # i_vector is point towards +ve i
+        """
+        self.n = HD.n
+        self.solar_altitude = solar_altitude
+        self.delta = rtc.delta
+        self.eps = rtc.eps
+        self.gamma = rtc.gamma
+        self.corner_points = HD.corner_points
+        # get points along the vector
+        self.r1_vector = lambda s,l: s + l*rtc.r_1 
+        self.r2_vector = lambda s,l: s + l*rtc.r_2
+        self.i_vector = lambda s,l: s+ l*np.array([1,0,0])
+        
+        self.step = step
+        self.slanted_length = self.n*self.gamma
+        self.horizontal_length = self.n*self.delta
+        self.slanted_division = np.arange(0,self.slanted_length+self.step,self.step)
+        self.horizontal_division = np.arange(0,self.horizontal_length+self.step,self.step)
+        
+    def get_boundary_points(self):
+        """
+        returns points_dict (dict): where keys (int) corresponds to the index of corner points of HD, from x0 to x3 in a cw direction,
+            and values (list of np.arrays) correspond the the coordinate points generated along the r1,r,r2 vectors (on all surface boundaries of the HD)
+            Do refer to the labelling of the corner points on the HD
+        """
+        
+        # random_index = random.randint(0,len(self.slanted_division)-1) #index to find the length along the vector
+        # x0_x2 = self.r1_vector(self.corner_points[1],self.slanted_division[random_index])
+        # x2_x4 = self.i_vector(self.corner_points[2],self.horizontal_division[random_index])
+        # x4_x6 = self.r2_vector(self.corner_points[4],-self.slanted_division[random_index])
+        # x6_x5 = self.r1_vector(self.corner_points[6],-self.slanted_division[random_index])
+        # x5_x3 = self.i_vector(self.corner_points[5],-self.horizontal_division[random_index])
+        # x3_x0 = self.r2_vector(self.corner_points[3],self.slanted_division[random_index])
 
+        points_dict = {i:[] for i in range(1,7)} #which corresponds to the corner points of HD, from x0 to x3 in a cw direction
+        for i,v in enumerate([self.r1_vector, self.i_vector, self.r2_vector]):
+            coord_start_index = i+1
+            coord_start_index_rev = 7 - coord_start_index
+            for l in range(len(self.slanted_division)): #iterate across all the subdivisions along the length
+                if i%2 == 0: #if either the r1 or r2 vector
+                    points_dict[coord_start_index].append(v(self.corner_points[coord_start_index],self.slanted_division[l]))
+                    points_dict[coord_start_index_rev].append(v(self.corner_points[coord_start_index_rev],-self.slanted_division[l]))
+                else: #if it's the i_vector
+                    points_dict[coord_start_index].append(v(self.corner_points[coord_start_index],self.horizontal_division[l]))
+                    points_dict[coord_start_index_rev].append(v(self.corner_points[coord_start_index_rev],-self.horizontal_division[l]))
+        
+        return points_dict
 
+    def get_points_within_HD(self):
+        """
+        step (float): distance between adjacent points
+        """
+        ref_point = np.array([-self.n*self.delta,0,0]) #x0 point
+        x_dist = lambda x1,x2: abs(x1[0]-x2[0]) # horizontal x distance between two points, x1, x2 represents the np.arrays of coord
+        base_of_parallelogram = lambda d: self.n*self.gamma + 2*self.gamma/self.delta*d #where d represents the horizontal x distance
+        # if distance is zero it is just the length x0 to x3
+        BP = self.get_boundary_points()
+        points_list = []
+        
+        for s in BP[1]:
+            d = x_dist(s,ref_point)
+            L = base_of_parallelogram(d)
+            for l in np.arange(0,L,step=self.step):
+                points_list.append(self.r2_vector(s,-l))
+        return points_list
+    
 class TIP:
     """
     stores the attributes of TIPs
@@ -132,6 +207,7 @@ class HexagonalDomain:
 
         self.x, self.y = self.get_hexagonal_vertices()
         self.vertices_dict = self.get_vertices_index()
+        self.corner_points = self.get_corner_points()
 
     def get_hexagonal_vertices(self):
         """
@@ -193,6 +269,27 @@ class HexagonalDomain:
         self.n_dist = n_dist
         self.nodes_dict = nodes_dict
         return nodes_dict
+
+    def get_corner_points(self):
+        """ 
+        Get the 4 upper corner points of the HexagonalDomain (from left to right),
+        since it's symmetrical about the middle line, we can extrapolate to obtaining 8 corner points (with 2 points duplicated)
+        """
+        x1 = (0-self.n)*self.delta
+        x2 = (x1 + self.n*self.delta/2)
+        x4 = (0+self.n)*self.delta
+        x3 = (x4 - self.n*self.delta/2)
+        y1 = y4 = 0
+        y2 = y3 = 0 + self.n*self.eps
+        x_list = [x1,x2,x3,x4]
+        y_list = [y1,y2,y3,y4]
+
+        corner_pts = []
+        for x,y in zip(x_list,y_list):
+            corner_pts.append(np.array([x,y,0]))
+            corner_pts.append(np.array([x,-y,0]))
+
+        return corner_pts
 
 class RayTracing:
     """

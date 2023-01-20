@@ -5,14 +5,22 @@ from mpl_toolkits.mplot3d import Axes3D
 from math import ceil
 import random
 import ray_tracing_constants as rtc
+import json
+from os.path import join, exists
+from os import mkdir,listdir
 
 class BoundaryPoints:
-    def __init__(self,HD, solar_altitude,step):
+    def __init__(self,HD, solar_altitude,azimuth,step):
         """
         HD (HexagonalDomain class)
         solar_altitude (float): in degrees, angle between horizontal surface to "sun"
+        azimuth (float): in degrees, angle between ray and east (+ve i direction)
         num_points (int): number of subdivisions to divide the slanted_length/horizontal_length
             i.e. number of points to generate per surface boundary line
+        # n (int): order of HD
+        # n_max (float): max height of wave facet
+        # zenith (float): angle (rad) bounded by ray and vertical
+        # d (float): projected length of ray on the horizontal
         # s (np.array): point on the vector
         # l (float): scaling factor of vector
         # r_1 is pointing towards +ve i and +ve j direction
@@ -20,21 +28,26 @@ class BoundaryPoints:
         # i_vector is point towards +ve i
         """
         self.n = HD.n
-        self.solar_altitude = solar_altitude
+        self.n_max = HD.n_max
+        self.solar_altitude = solar_altitude/180*np.pi
+        self.azimuth = azimuth/180*np.pi
+        self.zenith = np.pi/2 - self.solar_altitude
+        self.d = np.tan(self.zenith)*self.n_max
         self.delta = rtc.delta
         self.eps = rtc.eps
         self.gamma = rtc.gamma
         self.corner_points = HD.corner_points
         # get points along the vector
-        self.r1_vector = lambda s,l: s + l*rtc.r_1 
+        self.r1_vector = lambda s,l: s + l*rtc.r_1
         self.r2_vector = lambda s,l: s + l*rtc.r_2
         self.i_vector = lambda s,l: s+ l*np.array([1,0,0])
         
         self.step = step
         self.slanted_length = self.n*self.gamma
         self.horizontal_length = self.n*self.delta
-        self.slanted_division = np.arange(0,self.slanted_length+self.step,self.step)
-        self.horizontal_division = np.arange(0,self.horizontal_length+self.step,self.step)
+        self.slanted_division = np.arange(0,self.slanted_length,self.step)
+        self.horizontal_division = np.arange(0,self.horizontal_length,self.step)
+        self.xi_prime = self.get_xi_prime()
         
     def get_boundary_points(self):
         """
@@ -55,13 +68,14 @@ class BoundaryPoints:
         for i,v in enumerate([self.r1_vector, self.i_vector, self.r2_vector]):
             coord_start_index = i+1
             coord_start_index_rev = 7 - coord_start_index
-            for l in range(len(self.slanted_division)): #iterate across all the subdivisions along the length
+            for s_l in range(len(self.slanted_division)): #iterate across all the subdivisions along the length
                 if i%2 == 0: #if either the r1 or r2 vector
-                    points_dict[coord_start_index].append(v(self.corner_points[coord_start_index],self.slanted_division[l]))
-                    points_dict[coord_start_index_rev].append(v(self.corner_points[coord_start_index_rev],-self.slanted_division[l]))
-                else: #if it's the i_vector
-                    points_dict[coord_start_index].append(v(self.corner_points[coord_start_index],self.horizontal_division[l]))
-                    points_dict[coord_start_index_rev].append(v(self.corner_points[coord_start_index_rev],-self.horizontal_division[l]))
+                    points_dict[coord_start_index].append(v(self.corner_points[coord_start_index],self.slanted_division[s_l]))
+                    points_dict[coord_start_index_rev].append(v(self.corner_points[coord_start_index_rev],-self.slanted_division[s_l]))
+            for h_l in range(len(self.horizontal_division)): #iterate across all the subdivisions along the length
+                if i%2 != 0: #if it's the i_vector
+                    points_dict[coord_start_index].append(v(self.corner_points[coord_start_index],self.horizontal_division[h_l]))
+                    points_dict[coord_start_index_rev].append(v(self.corner_points[coord_start_index_rev],-self.horizontal_division[h_l]))
         
         return points_dict
 
@@ -80,8 +94,23 @@ class BoundaryPoints:
             d = x_dist(s,ref_point)
             L = base_of_parallelogram(d)
             for l in np.arange(0,L,step=self.step):
-                points_list.append(self.r2_vector(s,-l))
+                p = self.r2_vector(s,-l)
+                points_list.append(np.array([p[0],p[1],self.n_max]))
+                points_list.append(np.array([-p[0],-p[1],self.n_max]))
         return points_list
+
+    def get_xi_prime(self):
+        """
+        returns unit xi_prime, directed downwards, towards azimuth
+        """
+        xi_prime = np.array([self.d*np.cos(self.azimuth),self.d*np.sin(self.azimuth),-self.n_max]) # target where the ray hits the horizontal surface i.e. distance from p_h to target
+        t = xi_prime/np.linalg.norm(xi_prime) # ray is directed
+        # lambda_t = lambda t,p: t + np.array([p[0],p[1],0])
+        # points_within_HD = self.get_points_within_HD()
+        # unit_xi_prime = [(lambda_t(t,p)-p) for p in points_within_HD]
+        return t
+
+
     
 class TIP:
     """
@@ -631,7 +660,7 @@ def recursive_RayTracing(stack,store_list,HD):
         return store_list
     
     else:
-        print(len(stack))
+        # print(len(stack))
         # print("Enter recursion")
         s_pop = stack.pop() #DR
         RT = RayTracing(s_pop.WF.target,s_pop.xi_r,HD)
@@ -656,4 +685,64 @@ def recursive_RayTracing(stack,store_list,HD):
         # print(store_list)
         return recursive_RayTracing(stack,store_list,HD)
 
-        
+def save_daughter_rays(daughter_rays,save_fp,prefix):
+    """
+    save daughter rays into json file
+    daughter_rays (list of DaughterRay class)
+    save_fp (str): filepath to folder
+    prefix (str): prefix appended to file name
+    """
+    if exists(save_fp) is False:
+        mkdir(save_fp)
+
+    DR_dict = {i: {'DR': dict(),'WF': dict()} for i,dr in enumerate(daughter_rays)}#{0:{'DR':None,'WF':None},1:{'DR':None,'WF':None}}
+
+    for i,dr in enumerate(daughter_rays):
+        for k,v in vars(dr).items():
+            if type(v) == np.ndarray:
+                DR_dict[i]['DR'][k] = v.tolist()
+            elif isinstance(v,float) is True:
+                DR_dict[i]['DR'][k] = v
+        for k,v in vars(dr.WF).items():
+            if type(v) == np.ndarray:
+                DR_dict[i]['WF'][k] = v.tolist()
+            elif isinstance(v,float) is True:
+                DR_dict[i]['WF'][k] = v
+            else:
+                DR_dict[i]['WF'][k] = [i.tolist() for i in v]
+
+    with open(join(save_fp,"{}_DaughterRays.json".format(prefix)), 'w') as fp:
+        json.dump(DR_dict, fp)
+
+    return
+
+def load_daughter_rays(save_fp):
+    """
+    load daughter rays into dictionary
+    save_fp (str): filepath to folder
+    keys are:
+        number index (int): in ascending order
+            DR (str): contains attributes of daughter rays
+                theta_r (float): angle of reflectance
+                theta_t (float): angle of refraction
+                xi_r (list): unit vector of reflectance ray
+                xi_t (list): unit vector of transmitted ray
+                fresnel_reflectance (float): reflectance ratio (0 to 1)
+                fresnel_transmittance (float): transmittance ratio (0 to 1)
+            WF (str): contains attributes of the wave facet the daughter ray intercepts with
+                nodes (list of list): nodes of a wave facet (3 vertices)
+                norm (list): unit normal vector of a wave facet's normal
+                target (list): point on the horizontal surface which the ray strikes
+
+    """
+    with open(join(save_fp,"DaughterRays.json"), 'r') as fp:
+        data = json.load(fp)
+    
+    for i in data.keys():
+        data[i]['DR']['xi_r'] = np.array(data[i]['DR']['xi_r'])
+        data[i]['DR']['xi_t'] = np.array(data[i]['DR']['xi_t'])
+        data[i]['WF']['nodes'] = [np.array(i) for i in data[i]['WF']['nodes']]
+        data[i]['WF']['norm'] = np.array(data[i]['WF']['norm'])
+        data[i]['WF']['target'] = np.array(data[i]['WF']['target'])
+
+    return data

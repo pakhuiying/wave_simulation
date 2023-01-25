@@ -718,7 +718,7 @@ def save_daughter_rays(daughter_rays,save_fp,prefix):
 
 def load_daughter_rays(save_fp):
     """
-    load daughter rays into dictionary
+    load daughter rays into a list of dictionaries
     save_fp (str): filepath to folder
     keys are:
         number index (int): in ascending order
@@ -735,14 +735,19 @@ def load_daughter_rays(save_fp):
                 target (list): point on the horizontal surface which the ray strikes
 
     """
-    with open(join(save_fp,"DaughterRays.json"), 'r') as fp:
-        data = json.load(fp)
+    data_list = []
+    save_fp_list = [join(save_fp,i) for i in listdir(save_fp)]
+    for save_fp in save_fp_list:
+        with open(save_fp, 'r') as fp:
+            data = json.load(fp)
     
-    for i in data.keys():
-        data[i]['DR']['xi_r'] = np.array(data[i]['DR']['xi_r'])
-        data[i]['DR']['xi_t'] = np.array(data[i]['DR']['xi_t'])
-        data[i]['WF']['nodes'] = [np.array(i) for i in data[i]['WF']['nodes']]
-        data[i]['WF']['norm'] = np.array(data[i]['WF']['norm'])
-        data[i]['WF']['target'] = np.array(data[i]['WF']['target'])
+        for i in data.keys():
+            data[i]['DR']['xi_r'] = np.array(data[i]['DR']['xi_r'])
+            data[i]['DR']['xi_t'] = np.array(data[i]['DR']['xi_t'])
+            data[i]['WF']['nodes'] = [np.array(i) for i in data[i]['WF']['nodes']]
+            data[i]['WF']['norm'] = np.array(data[i]['WF']['norm'])
+            data[i]['WF']['target'] = np.array(data[i]['WF']['target'])
+            
+            data_list.append(data)
 
-    return data
+    return data_list

@@ -82,6 +82,7 @@ class BoundaryPoints:
     def get_points_within_HD(self):
         """
         step (float): distance between adjacent points
+        returns points within the HD with height at n_max (highest wave facet) to ensure that they intersect the wave facet
         """
         ref_point = np.array([-self.n*self.delta,0,0]) #x0 point
         x_dist = lambda x1,x2: abs(x1[0]-x2[0]) # horizontal x distance between two points, x1, x2 represents the np.arrays of coord
@@ -177,7 +178,8 @@ class DaughterRay:
     WF (WaveFacet class): wave facet where incident ray intercepts with WaveFacet
     returns the attributes of a daughter ray
     """
-    def __init__(self,theta_r,theta_t,xi_r,xi_t,WF):
+    def __init__(self,xi_prime,theta_r,theta_t,xi_r,xi_t,WF):
+        self.xi_prime = xi_prime
         self.theta_r = theta_r
         self.theta_t = theta_t
         self.xi_r = xi_r
@@ -383,12 +385,22 @@ class RayTracing:
                     s_j_dict[k].append(s_0(c))
         
         #only values between 0 and s_min (minimum of the positive values) are kept as they are within the hexagon
+        # print(s_j_dict)
+        for k,v in s_j_dict.items():
+            s = [i for i in v if i>=0]
+            if len(s) > 0:
+                s = s[:np.argmin(s)+1]
+            else:
+                s = []
+            s_j_dict[k] = s
 
-        s_j_dict = {k:[i for i in s_j_dict[k] if i>=0] for k in s_j_dict.keys()} #filter s values >=0
-        s_j_dict = {k:s_j_dict[k][:np.argmin(s_j_dict[k])+1] for k in s_j_dict.keys()} # values are sorted in descending manner, select values until the minimum positive value
+        # print(s_j_dict)
+        # s_j_dict = {k:[i for i in s_j_dict[k] if i>=0] for k in s_j_dict.keys()} #filter s values >=0
+        # s_j_dict = {k:s_j_dict[k][:np.argmin(s_j_dict[k])+1] for k in s_j_dict.keys()} # values are sorted in descending manner, select values until the minimum positive value
         ordered_TIPs = sorted([(k,i) for k,v in s_j_dict.items() for i in v],key=lambda x: x[1]) #list of tuples, where first element represents the k family, and 2nd element represents the associated s_j value
         ordered_TIPs = [TIP(k,index,s,self.p_h,self.xi_h) for index,(k,s) in enumerate(ordered_TIPs)]
         return ordered_TIPs
+        
 
     def TIP_vertices(self,TIP_0,TIP_1):
         """
@@ -613,21 +625,21 @@ class RayTracing:
             theta_prime = np.arccos(abs(np.dot(self.xi_prime, WF.norm))) #equiv to theta_r
             theta_t = np.arcsin(np.sin(theta_prime)/m)
 
-            return DaughterRay(theta_prime,theta_t, xi_r,xi_t,WF)
+            return DaughterRay(self.xi_prime,theta_prime,theta_t, xi_r,xi_t,WF)
         else:
             #water incident case
             theta_prime = np.arccos(abs(np.dot(self.xi_prime,WF.norm))) #equiv to theta_r
             theta_t = np.arcsin(m*np.sin(theta_prime))
             xi_r = self.xi_prime - 2*np.dot(self.xi_prime,WF.norm)*WF.norm
             if theta_prime > critical_angle: #if angle of incidence exceeds critical angle, Total Internal Reflection (TIR) will occur --> transmittance = 0
-                return DaughterRay(theta_prime, None, xi_r,None)
+                return DaughterRay(self.xi_prime,theta_prime, None, xi_r,None,WF)
             else:
                 
                 c = np.dot(m*self.xi_prime,WF.norm) - (np.dot(m*self.xi_prime,WF.norm)**2 - m**2 + 1)**0.5
                 # xi_t = m*self.xi_prime - c*WF.norm
                 xi_t = m*self.xi_prime + c*WF.norm
 
-                return DaughterRay(theta_prime,theta_t, xi_r,xi_t,WF)
+                return DaughterRay(self.xi_prime,theta_prime,theta_t, xi_r,xi_t,WF)
 
     def main(self):
         """
@@ -638,22 +650,26 @@ class RayTracing:
         """
         DR_list = []
         ordered_TIPs = self.get_TIPs()
+        if len(ordered_TIPs) > 0: #check if TIPs are within the HD
+            intersect_vertices_list = []
+            for i in range(1,len(ordered_TIPs)):
+                v = self.TIP_vertices(ordered_TIPs[i],ordered_TIPs[i-1])
+                intersect_vertices_list.append(v)
 
-        intersect_vertices_list = []
-        for i in range(1,len(ordered_TIPs)):
-            v = self.TIP_vertices(ordered_TIPs[i],ordered_TIPs[i-1])
-            intersect_vertices_list.append(v)
-
-        facets = self.get_normal_facet(intersect_vertices_list) #list of projected facets where TIPs lie on
-        intercepted_facets = self.get_intercepted_facets(facets,ordered_TIPs)
-        if len(intercepted_facets) > 0:
-            for v in intercepted_facets:
-                DR = self.get_daughter_ray(v)
-                DR_list.append(DR)
+            facets = self.get_normal_facet(intersect_vertices_list) #list of projected facets where TIPs lie on
+            intercepted_facets = self.get_intercepted_facets(facets,ordered_TIPs)
+            if len(intercepted_facets) > 0:
+                for v in intercepted_facets:
+                    DR = self.get_daughter_ray(v)
+                    DR_list.append(DR)
 
         return DR_list
+        
 
 def recursive_RayTracing(stack,store_list,HD):
+    """
+    returns a list of DaughterRay class
+    """
     if len(stack) == 0:
         # print('store_list len'.format(len(store_list)))
         # print("End recursion")
@@ -725,6 +741,7 @@ def load_daughter_rays(save_fp):
             DR (str): contains attributes of daughter rays
                 theta_r (float): angle of reflectance
                 theta_t (float): angle of refraction
+                xi_prime (list): unit vector of incidence ray
                 xi_r (list): unit vector of reflectance ray
                 xi_t (list): unit vector of transmitted ray
                 fresnel_reflectance (float): reflectance ratio (0 to 1)
@@ -744,6 +761,7 @@ def load_daughter_rays(save_fp):
         for i in data.keys():
             data[i]['DR']['xi_r'] = np.array(data[i]['DR']['xi_r'])
             data[i]['DR']['xi_t'] = np.array(data[i]['DR']['xi_t'])
+            data[i]['DR']['xi_prime'] = np.array(data[i]['DR']['xi_prime'])
             data[i]['WF']['nodes'] = [np.array(i) for i in data[i]['WF']['nodes']]
             data[i]['WF']['norm'] = np.array(data[i]['WF']['norm'])
             data[i]['WF']['target'] = np.array(data[i]['WF']['target'])
@@ -751,3 +769,46 @@ def load_daughter_rays(save_fp):
             data_list.append(data)
 
     return data_list
+
+def plot_daughter_rays(data_list,HD):
+    """
+    data_list (list of dictionaries): loaded from load_daughter_rays
+    HD (HexagonalDomain class)
+    """
+    fig, axes = plt.subplots(1,2,subplot_kw={'projection': '3d'},figsize=(15,10))
+    for data in data_list:
+        for d in data.values():
+            nodes = d['WF']['nodes']
+            target = d['WF']['target']
+            norm = d['WF']['norm']
+            xi_r = d['DR']['xi_r']
+            xi_t = d['DR']['xi_t']
+            xi_prime = d['DR']['xi_prime']
+            
+            for ax in axes.flatten():
+                ax.set_xlabel('x')
+                ax.set_ylabel('y')
+                ax.set_zlabel('z')
+                ax.arrow3D(target[0],target[1],target[2],
+                    dx = xi_r[0], dy = xi_r[1], dz = xi_r[2],
+                    mutation_scale=10,fc='green') #reflected vector
+                ax.arrow3D(target[0],target[1],target[2],
+                            dx = xi_t[0], dy = xi_t[1], dz = xi_t[2],
+                            mutation_scale=10,fc='orange') #refracted vector
+                ax.arrow3D(target[0],target[1],target[2],
+                            dx = norm[0], dy = norm[1], dz = norm[2],
+                            mutation_scale=20,fc='blue') #refracted vector
+                ax.arrow3D(target[0],target[1],target[2],
+                            dx = xi_prime[0],
+                            dy = xi_prime[1],
+                            dz = xi_prime[2],mutation_scale=10,fc = 'red')
+                ax.plot_trisurf([i[0] for i in nodes],
+                    [i[1] for i in nodes],
+                    [i[2] for i in nodes],alpha=0.7)
+    
+    triang = mpl.tri.Triangulation(HD.x, HD.y)
+    axes[0].plot_trisurf(triang,HD.n_dist, linewidth=0.2, antialiased=True,cmap=plt.cm.Spectral,alpha=0.5) #3d surface
+    plt.show()
+    return
+
+            

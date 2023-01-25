@@ -753,7 +753,7 @@ def load_daughter_rays(save_fp):
 
     """
     data_list = []
-    save_fp_list = [join(save_fp,i) for i in listdir(save_fp)]
+    save_fp_list = [join(save_fp,i) for i in listdir(save_fp) if i.endswith(".json")]
     for save_fp in save_fp_list:
         with open(save_fp, 'r') as fp:
             data = json.load(fp)

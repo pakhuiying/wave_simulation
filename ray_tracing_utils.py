@@ -159,6 +159,7 @@ class WaveFacet:
     def __init__(self,nodes):
         self.nodes = nodes
         self.norm = self.get_norm()
+        self.tilt = self.get_tilt()
     
     def get_norm(self):
         n1 = np.cross((self.nodes[2] - self.nodes[0]),(self.nodes[1] - self.nodes[0]))
@@ -171,6 +172,12 @@ class WaveFacet:
 
         n1 = sign*n1
         return n1
+
+    def get_tilt(self):
+        """
+        get average tilt of the wave facet's unit normal n from the vertical k (aka beta)
+        """
+        return np.arccos(np.dot(self.norm,np.array([0,0,1])))
 
 class DaughterRay:
     """
@@ -842,11 +849,10 @@ def load_daughter_rays(save_fp):
 def plot_daughter_rays(data_list,elev=90,azim = 270):
     """
     data_list (dict): dictionary that contains multiple scattering of daughter rays
-    HD (HexagonalDomain class)
     """
     fig, axes = plt.subplots(subplot_kw={'projection': '3d'},figsize=(10,10))
     legend_dict = {'reflected':'green','refracted':'orange','norm':'blue','incident':'red'}
-    for d in data_list.values():
+    for k,d in data_list.items():
         nodes = d['WF']['nodes']
         target = d['WF']['target']
         norm = d['WF']['norm']
@@ -874,6 +880,7 @@ def plot_daughter_rays(data_list,elev=90,azim = 270):
         axes.plot_trisurf([i[0] for i in nodes],
             [i[1] for i in nodes],
             [i[2] for i in nodes],alpha=0.7)
+        axes.text(target[0],target[1],target[2],"{}".format(k))
     
     axes.set_xlabel('x')
     axes.set_ylabel('y')
@@ -889,4 +896,16 @@ def plot_daughter_rays(data_list,elev=90,azim = 270):
     plt.show()
     return
 
-            
+def multiple_scattering(data_list,thresh=1):
+    """
+    data_list (dict): dictionary that contains multiple scattering of daughter rays
+    thresh (int): threshold of multiple scattering
+    returns % of ray tracing that goes through multiple scattering to produce > thresh daughter rays
+    """
+    ms = []
+    for l in data_list:
+        ms.append(len([k for k,v in l.items() if len(v) > thresh])/len(l.keys())*100)
+    return ms
+
+if __name__ == '__main__':
+    RayTrace(args)

@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import matplotlib.patches as mpatches
 from mpl_toolkits.mplot3d import Axes3D
 from math import ceil
 import random
@@ -8,6 +9,8 @@ import ray_tracing_constants as rtc
 import json
 from os.path import join, exists
 from os import mkdir,listdir
+from tqdm import tqdm
+from collections import deque #to implement stack
 
 class BoundaryPoints:
     def __init__(self,HD, solar_altitude,azimuth,step):
@@ -15,8 +18,8 @@ class BoundaryPoints:
         HD (HexagonalDomain class)
         solar_altitude (float): in degrees, angle between horizontal surface to "sun"
         azimuth (float): in degrees, angle between ray and east (+ve i direction)
-        num_points (int): number of subdivisions to divide the slanted_length/horizontal_length
-            i.e. number of points to generate per surface boundary line
+        step (float): subdivisions to divide the slanted_length/horizontal_length
+        
         # n (int): order of HD
         # n_max (float): max height of wave facet
         # zenith (float): angle (rad) bounded by ray and vertical
@@ -178,7 +181,8 @@ class DaughterRay:
     WF (WaveFacet class): wave facet where incident ray intercepts with WaveFacet
     returns the attributes of a daughter ray
     """
-    def __init__(self,xi_prime,theta_r,theta_t,xi_r,xi_t,WF):
+    def __init__(self,p_prime,xi_prime,theta_r,theta_t,xi_r,xi_t,WF):
+        self.p_prime = p_prime
         self.xi_prime = xi_prime
         self.theta_r = theta_r
         self.theta_t = theta_t
@@ -258,9 +262,9 @@ class HexagonalDomain:
         x = np.concatenate(x)
         y = np.concatenate(y)
 
-        plt.figure()
-        plt.plot(x,y,'o')
-        plt.show()
+        # plt.figure()
+        # plt.plot(x,y,'o')
+        # plt.show()
         return x,y
 
     def get_vertices_index(self):
@@ -625,21 +629,21 @@ class RayTracing:
             theta_prime = np.arccos(abs(np.dot(self.xi_prime, WF.norm))) #equiv to theta_r
             theta_t = np.arcsin(np.sin(theta_prime)/m)
 
-            return DaughterRay(self.xi_prime,theta_prime,theta_t, xi_r,xi_t,WF)
+            return DaughterRay(self.p_prime,self.xi_prime,theta_prime,theta_t, xi_r,xi_t,WF)
         else:
             #water incident case
             theta_prime = np.arccos(abs(np.dot(self.xi_prime,WF.norm))) #equiv to theta_r
             theta_t = np.arcsin(m*np.sin(theta_prime))
             xi_r = self.xi_prime - 2*np.dot(self.xi_prime,WF.norm)*WF.norm
             if theta_prime > critical_angle: #if angle of incidence exceeds critical angle, Total Internal Reflection (TIR) will occur --> transmittance = 0
-                return DaughterRay(self.xi_prime,theta_prime, None, xi_r,None,WF)
+                return DaughterRay(self.p_prime,self.xi_prime,theta_prime, None, xi_r,None,WF)
             else:
                 
                 c = np.dot(m*self.xi_prime,WF.norm) - (np.dot(m*self.xi_prime,WF.norm)**2 - m**2 + 1)**0.5
                 # xi_t = m*self.xi_prime - c*WF.norm
                 xi_t = m*self.xi_prime + c*WF.norm
 
-                return DaughterRay(self.xi_prime,theta_prime,theta_t, xi_r,xi_t,WF)
+                return DaughterRay(self.p_prime,self.xi_prime,theta_prime,theta_t, xi_r,xi_t,WF)
 
     def main(self):
         """
@@ -701,55 +705,114 @@ def recursive_RayTracing(stack,store_list,HD):
         # print(store_list)
         return recursive_RayTracing(stack,store_list,HD)
 
+def RayTrace(solar_altitude,azimuth,save_fp,prefix,n=7,step=0.3):
+    """
+    solar_altitude (float): in degrees, angle between horizontal surface to "sun"
+    azimuth (float): in degrees, angle between ray and east (+ve i direction)
+    save_fp (str): filepath to folder
+    prefix (str): prefix appended to file name
+    n (int): order of HexagonalDomain
+    step (float): step (float): subdivisions to divide the slanted_length/horizontal_length
+    """
+    HD = HexagonalDomain(n)
+    x,y = HD.x, HD.y
+    np.random.seed(seed=4)
+    n_dist = np.random.normal(loc=0,scale = np.sqrt(rtc.sigma),size = x.shape[0])
+    HD.get_nodes(n_dist) # will add the attributes n_dist and nodes_dict to class
+    # triang = mpl.tri.Triangulation(x, y) ## Triangulate parameter space to determine the triangles using a Delaunay triangulation
+
+    # fig, axes = plt.subplots(subplot_kw={'projection': '3d'},figsize=(8,30))
+    # axes.view_init(elev=90, azim=270)
+    # axes.set_xlabel('x')
+    # axes.set_ylabel('y')
+    # axes.set_zlabel('z')
+    # axes.plot_trisurf(triang,n_dist, linewidth=0.2, antialiased=True,cmap=plt.cm.Spectral,alpha=0.5) #3d surface
+    # plt.show()
+
+    BP = BoundaryPoints(HD,solar_altitude,azimuth, step)
+    xi_prime = BP.get_xi_prime()
+    points_within_HD = BP.get_points_within_HD()
+
+    dr_over_HD = {i:None for i in range(len(points_within_HD))}
+    # multiple_scattering = []
+    for index, p_prime in tqdm(enumerate(points_within_HD),desc="Rays to trace:"):
+        # initialise first incident ray
+        
+        S = deque()
+        L = []
+
+        RT = RayTracing(p_prime,xi_prime,HD)
+
+        dr_list = RT.main()
+        if len(dr_list) > 0: #push into s if dr_list is not empty
+            for dr in dr_list:
+                S.append(dr)
+                L.append(dr)
+
+        # recursive ray tracing
+        all_daughter_rays = recursive_RayTracing(S,L,HD) #list of DRs from multiple scattering
+        # print('{}. Number of daughter rays: {}'.format(index,len(all_daughter_rays)))
+
+        dr_over_HD[index] = all_daughter_rays
+
+    # Save results
+    save_daughter_rays(dr_over_HD,save_fp = save_fp,prefix=prefix)
+    return 
+
 def save_daughter_rays(daughter_rays,save_fp,prefix):
     """
     save daughter rays into json file
-    daughter_rays (list of DaughterRay class)
+    daughter_rays (dict): where keys are the index of xi_prime rays, values are list of DaughterRay class
     save_fp (str): filepath to folder
     prefix (str): prefix appended to file name
     """
     if exists(save_fp) is False:
         mkdir(save_fp)
 
-    DR_dict = {i: {'DR': dict(),'WF': dict()} for i,dr in enumerate(daughter_rays)}#{0:{'DR':None,'WF':None},1:{'DR':None,'WF':None}}
+    for index,dr_list in daughter_rays.items(): #where keys are the index of xi_prime rays, values are list of DaughterRay class
+        DR_dict = {i: {'DR': dict(),'WF': dict()} for i,_ in enumerate(dr_list)}#{0:{'DR':None,'WF':None},1:{'DR':None,'WF':None}}
 
-    for i,dr in enumerate(daughter_rays):
-        for k,v in vars(dr).items():
-            if type(v) == np.ndarray:
-                DR_dict[i]['DR'][k] = v.tolist()
-            elif isinstance(v,float) is True:
-                DR_dict[i]['DR'][k] = v
-        for k,v in vars(dr.WF).items():
-            if type(v) == np.ndarray:
-                DR_dict[i]['WF'][k] = v.tolist()
-            elif isinstance(v,float) is True:
-                DR_dict[i]['WF'][k] = v
-            else:
-                DR_dict[i]['WF'][k] = [i.tolist() for i in v]
+        for i,dr in enumerate(dr_list):
+            for k,v in vars(dr).items():
+                if type(v) == np.ndarray:
+                    DR_dict[i]['DR'][k] = v.tolist()
+                elif isinstance(v,float) is True:
+                    DR_dict[i]['DR'][k] = v
+            for k,v in vars(dr.WF).items():
+                if type(v) == np.ndarray:
+                    DR_dict[i]['WF'][k] = v.tolist()
+                elif isinstance(v,float) is True:
+                    DR_dict[i]['WF'][k] = v
+                else:
+                    DR_dict[i]['WF'][k] = [i.tolist() for i in v]
+
+        daughter_rays[index] = DR_dict
 
     with open(join(save_fp,"{}_DaughterRays.json".format(prefix)), 'w') as fp:
-        json.dump(DR_dict, fp)
+        json.dump(daughter_rays, fp)
 
     return
 
 def load_daughter_rays(save_fp):
     """
     load daughter rays into a list of dictionaries
-    save_fp (str): filepath to folder
+    returns a list of dictionaries
+    save_fp (str): filepath to folder which contains all DR
     keys are:
-        number index (int): in ascending order
-            DR (str): contains attributes of daughter rays
-                theta_r (float): angle of reflectance
-                theta_t (float): angle of refraction
-                xi_prime (list): unit vector of incidence ray
-                xi_r (list): unit vector of reflectance ray
-                xi_t (list): unit vector of transmitted ray
-                fresnel_reflectance (float): reflectance ratio (0 to 1)
-                fresnel_transmittance (float): transmittance ratio (0 to 1)
-            WF (str): contains attributes of the wave facet the daughter ray intercepts with
-                nodes (list of list): nodes of a wave facet (3 vertices)
-                norm (list): unit normal vector of a wave facet's normal
-                target (list): point on the horizontal surface which the ray strikes
+        number index (int): in ascending order (from a unique ray)
+            number index (int): in ascending order (indices from multiple scattering)
+                DR (str): contains attributes of daughter rays
+                    theta_r (float): angle of reflectance
+                    theta_t (float): angle of refraction
+                    xi_prime (list): unit vector of incidence ray
+                    xi_r (list): unit vector of reflectance ray
+                    xi_t (list): unit vector of transmitted ray
+                    fresnel_reflectance (float): reflectance ratio (0 to 1)
+                    fresnel_transmittance (float): transmittance ratio (0 to 1)
+                WF (str): contains attributes of the wave facet the daughter ray intercepts with
+                    nodes (list of list): nodes of a wave facet (3 vertices)
+                    norm (list): unit normal vector of a wave facet's normal
+                    target (list): point on the horizontal surface which the ray strikes
 
     """
     data_list = []
@@ -757,57 +820,72 @@ def load_daughter_rays(save_fp):
     for save_fp in save_fp_list:
         with open(save_fp, 'r') as fp:
             data = json.load(fp)
-    
-        for i in data.keys():
-            data[i]['DR']['xi_r'] = np.array(data[i]['DR']['xi_r'])
-            data[i]['DR']['xi_t'] = np.array(data[i]['DR']['xi_t'])
-            data[i]['DR']['xi_prime'] = np.array(data[i]['DR']['xi_prime'])
-            data[i]['WF']['nodes'] = [np.array(i) for i in data[i]['WF']['nodes']]
-            data[i]['WF']['norm'] = np.array(data[i]['WF']['norm'])
-            data[i]['WF']['target'] = np.array(data[i]['WF']['target'])
-            
-            data_list.append(data)
+
+        for i,v in data.items(): #where i is the xi_prime index, v is a dict
+            for j in v.keys(): # where j is the daughter ray index from multiple ray scattering
+                for dr_keys,dr_values in data[i][j]['DR'].items():
+                    if isinstance(dr_values,list):
+                        data[i][j]['DR'][dr_keys] = np.array(data[i][j]['DR'][dr_keys])
+                
+                # data[i][j]['DR']['xi_r'] = np.array(data[i][j]['DR']['xi_r'])
+                # data[i][j]['DR']['xi_t'] = np.array(data[i][j]['DR']['xi_t'])
+                # data[i][j]['DR']['xi_prime'] = np.array(data[i][j]['DR']['xi_prime'])
+                data[i][j]['WF']['nodes'] = [np.array(i) for i in data[i][j]['WF']['nodes']]
+                data[i][j]['WF']['norm'] = np.array(data[i][j]['WF']['norm'])
+                data[i][j]['WF']['target'] = np.array(data[i][j]['WF']['target'])
+        
+        data_copy = {int(i):{int(j):v_2 for j,v_2 in v_1.items()} for i,v_1 in data.items()}
+        data_list.append(data_copy)
 
     return data_list
 
-def plot_daughter_rays(data_list,HD):
+def plot_daughter_rays(data_list,elev=90,azim = 270):
     """
-    data_list (list of dictionaries): loaded from load_daughter_rays
+    data_list (dict): dictionary that contains multiple scattering of daughter rays
     HD (HexagonalDomain class)
     """
-    fig, axes = plt.subplots(1,2,subplot_kw={'projection': '3d'},figsize=(15,10))
-    for data in data_list:
-        for d in data.values():
-            nodes = d['WF']['nodes']
-            target = d['WF']['target']
-            norm = d['WF']['norm']
-            xi_r = d['DR']['xi_r']
+    fig, axes = plt.subplots(subplot_kw={'projection': '3d'},figsize=(10,10))
+    legend_dict = {'reflected':'green','refracted':'orange','norm':'blue','incident':'red'}
+    for d in data_list.values():
+        nodes = d['WF']['nodes']
+        target = d['WF']['target']
+        norm = d['WF']['norm']
+        xi_r = d['DR']['xi_r']
+        try:
             xi_t = d['DR']['xi_t']
-            xi_prime = d['DR']['xi_prime']
-            
-            for ax in axes.flatten():
-                ax.set_xlabel('x')
-                ax.set_ylabel('y')
-                ax.set_zlabel('z')
-                ax.arrow3D(target[0],target[1],target[2],
-                    dx = xi_r[0], dy = xi_r[1], dz = xi_r[2],
-                    mutation_scale=10,fc='green') #reflected vector
-                ax.arrow3D(target[0],target[1],target[2],
-                            dx = xi_t[0], dy = xi_t[1], dz = xi_t[2],
-                            mutation_scale=10,fc='orange') #refracted vector
-                ax.arrow3D(target[0],target[1],target[2],
-                            dx = norm[0], dy = norm[1], dz = norm[2],
-                            mutation_scale=20,fc='blue') #refracted vector
-                ax.arrow3D(target[0],target[1],target[2],
-                            dx = xi_prime[0],
-                            dy = xi_prime[1],
-                            dz = xi_prime[2],mutation_scale=10,fc = 'red')
-                ax.plot_trisurf([i[0] for i in nodes],
-                    [i[1] for i in nodes],
-                    [i[2] for i in nodes],alpha=0.7)
+        except:
+            xi_t = None
+        xi_prime = d['DR']['xi_prime']
+        
+        axes.arrow3D(target[0],target[1],target[2],
+            dx = xi_r[0], dy = xi_r[1], dz = xi_r[2],
+            mutation_scale=10,fc='green') #reflected vector
+        if xi_t is not None:
+            axes.arrow3D(target[0],target[1],target[2],
+                        dx = xi_t[0], dy = xi_t[1], dz = xi_t[2],
+                        mutation_scale=10,fc='orange') #refracted vector
+        axes.arrow3D(target[0],target[1],target[2],
+                    dx = norm[0], dy = norm[1], dz = norm[2],
+                    mutation_scale=10,fc='blue') #norm
+        axes.arrow3D(target[0],target[1],target[2],
+                    dx = xi_prime[0],
+                    dy = xi_prime[1],
+                    dz = xi_prime[2],mutation_scale=10,fc = 'red') #incident vector
+        axes.plot_trisurf([i[0] for i in nodes],
+            [i[1] for i in nodes],
+            [i[2] for i in nodes],alpha=0.7)
     
-    triang = mpl.tri.Triangulation(HD.x, HD.y)
-    axes[0].plot_trisurf(triang,HD.n_dist, linewidth=0.2, antialiased=True,cmap=plt.cm.Spectral,alpha=0.5) #3d surface
+    axes.set_xlabel('x')
+    axes.set_ylabel('y')
+    axes.set_zlabel('z')
+    axes.set_proj_type('ortho')
+    axes.view_init(elev=elev, azim=azim)
+    patchList = []
+    for key in legend_dict:
+        data_key = mpatches.Patch(color=legend_dict[key], label=key)
+        patchList.append(data_key)
+
+    plt.legend(handles=patchList)
     plt.show()
     return
 

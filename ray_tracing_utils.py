@@ -907,5 +907,40 @@ def multiple_scattering(data_list,thresh=1):
         ms.append(len([k for k,v in l.items() if len(v) > thresh])/len(l.keys())*100)
     return ms
 
+class GlitterPattern:
+    def __init__(self,xi_prime,xi_r,S,f=1):
+        """
+        camera axis (a) is aligned along the specular ray path such that theta_s' = theta_c (angle of reflection)
+        xi_r and a must face the same direction s.t. xi \cdot a > 0 such that specular glitter will appear on the image
+        iterate across all reflected/transmitted ray and check if xi \cdot a > 0, then compute t_h and t_v
+        """
+        self.xi_prime = xi_prime
+        self.xi_r = xi_r # reflected ray off the wave facet
+        self.S = S # specular point on the water surface
+        # sun-based coordinate system
+        self.z = np.array([0,0,1])
+        x = np.array([self.xi_prime[0],self.xi_prime[1],0])
+        self.x = x/np.linalg.norm(x)
+        self.y = np.cross(self.z,self.x)
+        # camera position is fixed with f and a
+        self.f = f # distance from S along camera axis direction
+        self.a = xi_prime - 2*np.dot(xi_prime,self.z)*self.z # camera axis direction (a)
+        # image plane coordinate system
+        self.h = -self.y
+        self.v = np.cross(self.a,self.h)
+        self.t_h = self.f*np.dot(self.xi_r,self.h)/np.dot(self.xi_r,self.a)
+        self.t_v = self.f*np.dot(self.xi_r,self.v)/np.dot(self.xi_r,self.a)
+        self.xi_h = np.dot(self.xi_r,self.h)
+        self.xi_v = np.dot(self.xi_r,self.v)
+        self.psi_h = np.arccos(np.dot(self.xi_h,self.a))*np.sign(self.t_h)
+        self.psi_v = np.arccos(np.dot(self.xi_v,self.a))*np.sign(self.t_v)
+
+        
+
+        
+    
+    
+
+
 if __name__ == '__main__':
     RayTrace(args)

@@ -963,50 +963,86 @@ def plot_glitter_pattern(data_list,camera_axis,f=1):
 
 def wind_to_sun_rot(phi_prime):
     """
-    phi_s_prime: angle (in rad) measured wrt between x and i-axis in counterclockwise
+    phi_s_prime: angle (in rad) measured between i and location of sun (light source) in counterclockwise
+    phi_prime: angle (in rad) measured wrt between x (in the same direction as xi_prime) and i-axis in counterclockwise
     rotation matrix to rotate wind-based vector to sun based vector
     """
+    # phi_prime = phi_s_prime + np.pi
     return np.array([[np.cos(phi_prime),np.sin(phi_prime),0],
                 [-np.sin(phi_prime),np.cos(phi_prime),0],
                 [0,0,1]])
 
 def sun_to_wind_rot(phi_prime):
     """
-    phi_s_prime: angle (in rad) measured wrt between x and i-axis in counterclockwise
-    rotation matrix to rotate sun-based vector to wind based vector
+    phi_s_prime: angle (in rad) measured between i and location of sun (light source) in counterclockwise
+    phi_prime: angle (in rad) measured wrt between x (in the same direction as xi_prime) and i-axis in counterclockwise
+    rotation matrix to rotate wind-based vector to sun based vector
     """
+    # phi_prime = phi_s_prime + np.pi
     return np.array([[np.cos(phi_prime),-np.sin(phi_prime),0],
                 [np.sin(phi_prime),np.cos(phi_prime),0],
                 [0,0,1]])
 
-def glitter_pattern_contour(xi_prime,a,f=1):
+def glitter_pattern_contour(xi_prime,a,f=1,n=100,plot=True):
     """
     a (wind-based coordinate system)
     xi_prime (wind-based coordinate system)
     returns isolines (dict) where keys are alpha and beta in degree
     """
     xi_prime = xi_prime/np.linalg.norm(xi_prime)
-    phi_prime = np.arccos(np.dot(np.array([1,0,0]),xi_prime))
+    xi_prime_copy = xi_prime.copy()
+    phi_prime = np.arccos(np.dot(np.array([1,0,0]),xi_prime)) #angle between x and i
     wind_to_sun_mat = wind_to_sun_rot(phi_prime)
 
     xi_prime = np.dot(wind_to_sun_mat,xi_prime)
+    a_copy = a.copy()
     a = np.dot(wind_to_sun_mat,a)
-    isolines = []
-    for psi_h in np.linspace(-30,30,100):
-        for psi_v in np.linspace(-50,30,100):
-            t_h = f*np.tan(psi_h/180*np.pi)
-            t_v = f*np.tan(psi_v/180*np.pi)
-            xi_x = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(f*a[0] + t_v*a[2])
-            xi_y = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(-t_h)
-            xi_z = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(f*a[2] - a[0]*t_v)
-            xi = np.array([xi_x,xi_y,xi_z])
-            n = (xi - xi_prime)
-            n = n/np.linalg.norm(n) #wrt to sun-based coordinate
-            alpha = np.arctan(-n[1]/n[0])/np.pi*180 #azimuth angle wrt sun-based coordinate system
-            beta = np.arccos(n[2])/np.pi*180 #tilt angle wrt sun-based coordinate system
-            isolines.append({'psi_h':psi_h,'psi_v':psi_v,'alpha':alpha,'beta':beta})
+    psi_h,psi_v = np.meshgrid(np.linspace(-30,30,n),np.linspace(-50,30,n))
+    alpha_list = []
+    beta_list = []
+    for p_h,p_v in zip(psi_h.flatten(),psi_v.flatten()):
+        t_h = f*np.tan(p_h/180*np.pi)
+        t_v = f*np.tan(p_v/180*np.pi)
+        xi_x = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(f*a[0] + t_v*a[2])
+        xi_y = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(-t_h)
+        xi_z = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(f*a[2] - a[0]*t_v)
+        xi = np.array([xi_x,xi_y,xi_z])
+        n = (xi - xi_prime)
+        n = n/np.linalg.norm(n) #wrt to sun-based coordinate
+        alpha = np.arctan(-n[1]/n[0])/np.pi*180 #azimuth angle wrt sun-based coordinate system
+        beta = np.arccos(n[2])/np.pi*180 #tilt angle wrt sun-based coordinate system
+        alpha_list.append(alpha)
+        beta_list.append(beta)
     
-    return isolines
+    alpha = np.array(alpha_list).reshape(psi_h.shape)
+    beta = np.array(beta_list).reshape(psi_h.shape)
+
+    if plot is True:
+        fontsize=8
+        def fmt(x):
+            s = f"{x:.0f}"
+            return f"{s}"
+
+        # xi_prime = np.array([xi_prime_copy[0],xi_prime_copy[1]])
+        # xi_prime = xi_prime/np.linalg.norm(xi_prime)
+        # azimuth = np.arccos(np.dot(xi_prime,np.array([1,0])))/np.pi*180
+        azimuth = (phi_prime - np.pi)/np.pi*180
+        zenith = np.arccos(np.dot(-xi_prime_copy,np.array([0,0,1])))/np.pi*180
+        a = np.array([a_copy[0],a_copy[1]])
+        a = a/np.linalg.norm(a)
+        camera_azimuth = np.arccos(np.dot(a,np.array([1,0])))/np.pi*180
+        camera_zenith = np.arccos(np.dot(a_copy,np.array([0,0,1])))/np.pi*180
+        
+        
+        fig, ax = plt.subplots(figsize=(10,10))
+        CS_alpha = ax.contour(psi_h,psi_v,alpha,colors='k',linestyles='dashed')
+        ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt)
+        CS_beta = ax.contour(psi_h,psi_v,beta,colors='k',linestyles='dashed')
+        ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt)
+        ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}$'.format(azimuth=azimuth,zenith=zenith,
+                                                                    c_azi=camera_azimuth,c_theta=camera_zenith))
+        plt.show()
+    return {'psi_h':psi_h,'psi_v':psi_v,'alpha':alpha,'beta':beta}
     
     
 

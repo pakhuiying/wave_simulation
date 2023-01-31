@@ -908,7 +908,7 @@ def multiple_scattering(data_list,thresh=1):
     return ms
 
 class GlitterPattern:
-    def __init__(self,xi_prime,xi_r,S,f=1):
+    def __init__(self,xi_prime,xi_r,a,f=1):
         """
         camera axis (a) is aligned along the specular ray path such that theta_s' = theta_c (angle of reflection)
         xi_r and a must face the same direction s.t. xi \cdot a > 0 such that specular glitter will appear on the image
@@ -916,28 +916,97 @@ class GlitterPattern:
         """
         self.xi_prime = xi_prime
         self.xi_r = xi_r # reflected ray off the wave facet
-        self.S = S # specular point on the water surface
+        # self.S = S # specular point on the water surface
         # sun-based coordinate system
         self.z = np.array([0,0,1])
         x = np.array([self.xi_prime[0],self.xi_prime[1],0])
         self.x = x/np.linalg.norm(x)
-        self.y = np.cross(self.z,self.x)
+        y = np.cross(self.z,self.x)
+        self.y = y/np.linalg.norm(y)
         # camera position is fixed with f and a
         self.f = f # distance from S along camera axis direction
-        self.a = xi_prime - 2*np.dot(xi_prime,self.z)*self.z # camera axis direction (a)
+        # a = xi_prime - 2*np.dot(xi_prime,self.z)*self.z # camera axis direction (a)
+        self.a = a/np.linalg.norm(a)
         # image plane coordinate system
         self.h = -self.y
-        self.v = np.cross(self.a,self.h)
+        v = np.cross(self.a,self.h)
+        self.v = v/np.linalg.norm(v)
         self.t_h = self.f*np.dot(self.xi_r,self.h)/np.dot(self.xi_r,self.a)
         self.t_v = self.f*np.dot(self.xi_r,self.v)/np.dot(self.xi_r,self.a)
-        self.xi_h = np.dot(self.xi_r,self.h)
-        self.xi_v = np.dot(self.xi_r,self.v)
+        xi_h = self.f*self.a + self.t_h*self.h #should be a unit vector
+        self.xi_h = xi_h/np.linalg.norm(xi_h)
+        xi_v = self.f*self.a + self.t_v*self.v #should be a unit vector
+        self.xi_v = xi_v/np.linalg.norm(xi_v)
         self.psi_h = np.arccos(np.dot(self.xi_h,self.a))*np.sign(self.t_h)
         self.psi_v = np.arccos(np.dot(self.xi_v,self.a))*np.sign(self.t_v)
 
-        
+def plot_glitter_pattern(data_list,camera_axis,f=1):
+    """
+    data_list (dict): keys are:
+        indices of xi_prime
+            indices of multiple ray scattering
+    camera_axis (np.array): camera optical axis should be fixed
+    f (float): 1 as default for generalisability. Simulates focal length of camera
+    """
+    output = []
+    for v1 in data_list.values(): # iterate across individual rays
+        if bool(v1) is True: #check if dict is not empty
+            for v2 in v1.values():
+                xi_r = v2['DR']['xi_r']
+                xi_prime = v2['DR']['xi_prime']
+                if np.dot(xi_r,camera_axis) > 0: # camera axis and reflected ray is in the same direction
+                    GP = GlitterPattern(xi_prime,xi_r,camera_axis,f)
+                    d = {'t_h':GP.t_h,'t_v':GP.t_v,'psi_h':GP.psi_h/np.pi*180,'psi_v':GP.psi_v/np.pi*180}
+                    output.append(d)
+    
+    return output
 
-        
+def wind_to_sun_rot(phi_prime):
+    """
+    phi_s_prime: angle (in rad) measured wrt between x and i-axis in counterclockwise
+    rotation matrix to rotate wind-based vector to sun based vector
+    """
+    return np.array([[np.cos(phi_prime),np.sin(phi_prime),0],
+                [-np.sin(phi_prime),np.cos(phi_prime),0],
+                [0,0,1]])
+
+def sun_to_wind_rot(phi_prime):
+    """
+    phi_s_prime: angle (in rad) measured wrt between x and i-axis in counterclockwise
+    rotation matrix to rotate sun-based vector to wind based vector
+    """
+    return np.array([[np.cos(phi_prime),-np.sin(phi_prime),0],
+                [np.sin(phi_prime),np.cos(phi_prime),0],
+                [0,0,1]])
+
+def glitter_pattern_contour(xi_prime,a,f=1):
+    """
+    a (wind-based coordinate system)
+    xi_prime (wind-based coordinate system)
+    returns isolines (dict) where keys are alpha and beta in degree
+    """
+    xi_prime = xi_prime/np.linalg.norm(xi_prime)
+    phi_prime = np.arccos(np.dot(np.array([1,0,0]),xi_prime))
+    wind_to_sun_mat = wind_to_sun_rot(phi_prime)
+
+    xi_prime = np.dot(wind_to_sun_mat,xi_prime)
+    a = np.dot(wind_to_sun_mat,a)
+    isolines = []
+    for psi_h in np.linspace(-30,30,100):
+        for psi_v in np.linspace(-50,30,100):
+            t_h = f*np.tan(psi_h/180*np.pi)
+            t_v = f*np.tan(psi_v/180*np.pi)
+            xi_x = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(f*a[0] + t_v*a[2])
+            xi_y = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(-t_h)
+            xi_z = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(f*a[2] - a[0]*t_v)
+            xi = np.array([xi_x,xi_y,xi_z])
+            n = (xi - xi_prime)
+            n = n/np.linalg.norm(n) #wrt to sun-based coordinate
+            alpha = np.arctan(-n[1]/n[0])/np.pi*180 #azimuth angle wrt sun-based coordinate system
+            beta = np.arccos(n[2])/np.pi*180 #tilt angle wrt sun-based coordinate system
+            isolines.append({'psi_h':psi_h,'psi_v':psi_v,'alpha':alpha,'beta':beta})
+    
+    return isolines
     
     
 

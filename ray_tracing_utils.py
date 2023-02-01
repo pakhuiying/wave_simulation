@@ -908,58 +908,143 @@ def multiple_scattering(data_list,thresh=1):
     return ms
 
 class GlitterPattern:
-    def __init__(self,xi_prime,xi_r,a,f=1):
+    def __init__(self,data_list,xi_prime,camera_axis,f=1,fov_h=30,n=100,plot=True):
         """
-        camera axis (a) is aligned along the specular ray path such that theta_s' = theta_c (angle of reflection)
-        xi_r and a must face the same direction s.t. xi \cdot a > 0 such that specular glitter will appear on the image
-        iterate across all reflected/transmitted ray and check if xi \cdot a > 0, then compute t_h and t_v
+        data_list (dict): keys are:
+            indices of xi_prime
+                indices of multiple ray scattering
+        f (float): 1 as default for generalisability. Simulates focal length of camera
+        camera axis (a)  (np.array): is aligned along the specular ray path such that theta_s' = theta_c (angle of reflection)
+        fov_h (float): horizontal viewing angle of camera
+        n (int): number of points to generate the contour lines of alpha and beta
         """
-        self.xi_prime = xi_prime
-        self.xi_r = xi_r # reflected ray off the wave facet
-        # self.S = S # specular point on the water surface
-        # sun-based coordinate system
-        self.z = np.array([0,0,1])
-        x = np.array([self.xi_prime[0],self.xi_prime[1],0])
+        self.data_list = data_list
+        # camera position is fixed with f and a
+        self.xi_prime = xi_prime/np.linalg.norm(xi_prime) # direction of the sun rays (must be fixed since sun location is fixed at an instance of wave surface realisation)
+        self.f = f # distance from S along camera axis direction
+        # a = xi_prime - 2*np.dot(xi_prime,self.z)*self.z # camera axis direction (a)
+        self.camera_axis = camera_axis/np.linalg.norm(camera_axis)
+
+        # sun-based coordinate system in wind-based coordinates
+        self.z = np.array([0,0,1]) #same as wind_based
+        x = np.array([self.xi_prime[0],self.xi_prime[1],0]) #x is in the same direction as xi_prime
         self.x = x/np.linalg.norm(x)
         y = np.cross(self.z,self.x)
         self.y = y/np.linalg.norm(y)
-        # camera position is fixed with f and a
-        self.f = f # distance from S along camera axis direction
-        # a = xi_prime - 2*np.dot(xi_prime,self.z)*self.z # camera axis direction (a)
-        self.a = a/np.linalg.norm(a)
-        # image plane coordinate system
-        self.h = -self.y
-        v = np.cross(self.a,self.h)
-        self.v = v/np.linalg.norm(v)
-        self.t_h = self.f*np.dot(self.xi_r,self.h)/np.dot(self.xi_r,self.a)
-        self.t_v = self.f*np.dot(self.xi_r,self.v)/np.dot(self.xi_r,self.a)
-        xi_h = self.f*self.a + self.t_h*self.h #should be a unit vector
-        self.xi_h = xi_h/np.linalg.norm(xi_h)
-        xi_v = self.f*self.a + self.t_v*self.v #should be a unit vector
-        self.xi_v = xi_v/np.linalg.norm(xi_v)
-        self.psi_h = np.arccos(np.dot(self.xi_h,self.a))*np.sign(self.t_h)
-        self.psi_v = np.arccos(np.dot(self.xi_v,self.a))*np.sign(self.t_v)
 
-def plot_glitter_pattern(data_list,camera_axis,f=1):
-    """
-    data_list (dict): keys are:
-        indices of xi_prime
-            indices of multiple ray scattering
-    camera_axis (np.array): camera optical axis should be fixed
-    f (float): 1 as default for generalisability. Simulates focal length of camera
-    """
-    output = []
-    for v1 in data_list.values(): # iterate across individual rays
-        if bool(v1) is True: #check if dict is not empty
-            for v2 in v1.values():
-                xi_r = v2['DR']['xi_r']
-                xi_prime = v2['DR']['xi_prime']
-                if np.dot(xi_r,camera_axis) > 0: # camera axis and reflected ray is in the same direction
-                    GP = GlitterPattern(xi_prime,xi_r,camera_axis,f)
-                    d = {'t_h':GP.t_h,'t_v':GP.t_v,'psi_h':GP.psi_h/np.pi*180,'psi_v':GP.psi_v/np.pi*180}
-                    output.append(d)
+        # image plane coordinate system in wind-based coordinates
+        self.h = -self.y
+        v = np.cross(self.camera_axis,self.h)
+        self.v = v/np.linalg.norm(v)
+        self.fov_h = fov_h
+        self.n = n
+        self.plot = plot
+
+        # wind-based coordinate system
+        self.k = self.z
+        self.i = np.array([1,0,0])
+        self.j = np.array([0,1,0])
+
+        # calculate solar angles wrt to wind-based direction
+        self.phi_prime = np.arccos(np.dot(self.i,self.x)) #angle between x and i in rad
+        # location of light source
+        self.solar_azimuth = (self.phi_prime - np.pi)/np.pi*180 #phi_s (angle between i and light source) in deg
+        self.solar_zenith = np.arccos(np.dot(-self.xi_prime,self.z))/np.pi*180 # zenith of light source in deg
+        
+        # camera location wrt to wind-based direction
+        a = np.array([self.camera_axis[0],self.camera_axis[1]])
+        a = a/np.linalg.norm(a)
+        self.camera_azimuth = np.arccos(np.dot(a,np.array([1,0])))/np.pi*180 #in deg
+        self.camera_zenith = np.arccos(np.dot(self.camera_axis,self.k))/np.pi*180 #in deg
+        # camera viewing angle in deg
+        self.fov_v_upper = 90 - self.camera_zenith #viewing angle of camera that corresponds to looking toward ocean horizon
+        self.fov_v_lower = -self.camera_zenith
     
-    return output
+    def get_psi(self,xi_r):
+        """
+        xi_r (np.array): wind-based reflected ray
+        get glitter locations in terms of camera viewing angles in wind-based coordinate system
+        returns a tuple (psi_h,psi_v) in deg
+        """
+        t_h = self.f*np.dot(xi_r,self.h)/np.dot(xi_r,self.camera_axis)
+        t_v = self.f*np.dot(xi_r,self.v)/np.dot(xi_r,self.camera_axis)
+        xi_h = self.f*self.camera_axis + t_h*self.h #should be a unit vector
+        xi_h = xi_h/np.linalg.norm(xi_h)
+        xi_v = self.f*self.camera_axis + t_v*self.v #should be a unit vector
+        xi_v = xi_v/np.linalg.norm(xi_v)
+        psi_h = np.arccos(np.dot(xi_h,self.camera_axis))*np.sign(t_h)/np.pi*180
+        psi_v = np.arccos(np.dot(xi_v,self.camera_axis))*np.sign(t_v)/np.pi*180
+
+        # contrain glittern pattern to camera viewing angles
+        if ((psi_h < self.fov_h) and (psi_h > self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
+            return (psi_h,psi_v)
+
+    def plot_glitter_pattern(self):
+        """
+        xi_r and a must face the same direction s.t. xi \cdot a > 0 such that specular glitter will appear on the image
+        iterate across all reflected/transmitted ray and check if xi \cdot a > 0, then compute t_h and t_v
+        """
+        output = []
+        for v1 in self.data_list.values(): # iterate across individual rays
+            if bool(v1) is True: #check if dict is not empty
+                for v2 in v1.values():
+                    xi_r = v2['DR']['xi_r']
+                    if np.dot(xi_r,self.camera_axis) > 0: # camera axis and reflected ray is in the same direction
+                        psi_h,psi_v = self.get_psi(xi_r)
+                        d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
+                        output.append(d)
+        
+        return output
+
+    def glitter_pattern_contour(self):
+        """
+        a (wind-based coordinate system)
+        xi_prime (wind-based coordinate system)
+        returns isolines (dict) where keys are alpha and beta in degree
+        """
+
+        #matrix for rotating wind based vector to sun-based vector such that we are viewing wrt to the specular direction of sun rays
+        wind_to_sun_mat = wind_to_sun_rot(self.phi_prime)
+        # get xi_prime and camera-axis (a) in sun-based coordinate system
+        xi_prime = np.dot(wind_to_sun_mat,self.xi_prime)
+        a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
+
+        psi_h,psi_v = np.meshgrid(np.linspace(-self.fov_h,self.fov_h,n),np.linspace(self.fov_v_lower,self.fov_v_upper,self.n))
+        alpha_list = []
+        beta_list = []
+        for p_h,p_v in zip(psi_h.flatten(),psi_v.flatten()):
+            t_h = self.f*np.tan(p_h/180*np.pi)
+            t_v = self.f*np.tan(p_v/180*np.pi)
+            xi_x = ((self.f**2 + t_h**2 + t_v**2)**(-0.5))*(self.f*a[0] + t_v*a[2])
+            xi_y = ((self.f**2 + t_h**2 + t_v**2)**(-0.5))*(-t_h)
+            xi_z = ((self.f**2 + t_h**2 + t_v**2)**(-0.5))*(self.f*a[2] - a[0]*t_v)
+            xi = np.array([xi_x,xi_y,xi_z])
+            n = (xi - xi_prime)
+            n = n/np.linalg.norm(n) #wrt to sun-based coordinate
+            alpha = np.arctan(-n[1]/n[0])/np.pi*180 #azimuth angle wrt sun-based coordinate system
+            beta = np.arccos(n[2])/np.pi*180 #tilt angle wrt sun-based coordinate system
+            alpha_list.append(alpha)
+            beta_list.append(beta)
+        
+        alpha = np.array(alpha_list).reshape(psi_h.shape)
+        beta = np.array(beta_list).reshape(psi_h.shape)
+
+        if self.plot is True:
+            fontsize=8
+            def fmt(x):
+                s = f"{x:.0f}"
+                return f"{s}"
+
+            
+            fig, ax = plt.subplots(figsize=(10,10))
+            CS_alpha = ax.contour(psi_h,psi_v,alpha,colors='k',linestyles='dashed')
+            ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt)
+            CS_beta = ax.contour(psi_h,psi_v,beta,colors='k',linestyles='dashed')
+            ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt)
+            ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}$'.format(azimuth=self.solar_azimuth,zenith=self.solar_zenith,
+                                                                        c_azi=self.camera_azimuth,c_theta=self.camera_zenith))
+            plt.show()
+        return {'psi_h':psi_h,'psi_v':psi_v,'alpha':alpha,'beta':beta}
 
 def wind_to_sun_rot(phi_prime):
     """
@@ -983,66 +1068,7 @@ def sun_to_wind_rot(phi_prime):
                 [np.sin(phi_prime),np.cos(phi_prime),0],
                 [0,0,1]])
 
-def glitter_pattern_contour(xi_prime,a,f=1,n=100,plot=True):
-    """
-    a (wind-based coordinate system)
-    xi_prime (wind-based coordinate system)
-    returns isolines (dict) where keys are alpha and beta in degree
-    """
-    xi_prime = xi_prime/np.linalg.norm(xi_prime)
-    xi_prime_copy = xi_prime.copy()
-    phi_prime = np.arccos(np.dot(np.array([1,0,0]),xi_prime)) #angle between x and i
-    wind_to_sun_mat = wind_to_sun_rot(phi_prime)
 
-    xi_prime = np.dot(wind_to_sun_mat,xi_prime)
-    a_copy = a.copy()
-    a = np.dot(wind_to_sun_mat,a)
-    psi_h,psi_v = np.meshgrid(np.linspace(-30,30,n),np.linspace(-50,30,n))
-    alpha_list = []
-    beta_list = []
-    for p_h,p_v in zip(psi_h.flatten(),psi_v.flatten()):
-        t_h = f*np.tan(p_h/180*np.pi)
-        t_v = f*np.tan(p_v/180*np.pi)
-        xi_x = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(f*a[0] + t_v*a[2])
-        xi_y = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(-t_h)
-        xi_z = ((f**2 + t_h**2 + t_v**2)**(-0.5))*(f*a[2] - a[0]*t_v)
-        xi = np.array([xi_x,xi_y,xi_z])
-        n = (xi - xi_prime)
-        n = n/np.linalg.norm(n) #wrt to sun-based coordinate
-        alpha = np.arctan(-n[1]/n[0])/np.pi*180 #azimuth angle wrt sun-based coordinate system
-        beta = np.arccos(n[2])/np.pi*180 #tilt angle wrt sun-based coordinate system
-        alpha_list.append(alpha)
-        beta_list.append(beta)
-    
-    alpha = np.array(alpha_list).reshape(psi_h.shape)
-    beta = np.array(beta_list).reshape(psi_h.shape)
-
-    if plot is True:
-        fontsize=8
-        def fmt(x):
-            s = f"{x:.0f}"
-            return f"{s}"
-
-        # xi_prime = np.array([xi_prime_copy[0],xi_prime_copy[1]])
-        # xi_prime = xi_prime/np.linalg.norm(xi_prime)
-        # azimuth = np.arccos(np.dot(xi_prime,np.array([1,0])))/np.pi*180
-        azimuth = (phi_prime - np.pi)/np.pi*180
-        zenith = np.arccos(np.dot(-xi_prime_copy,np.array([0,0,1])))/np.pi*180
-        a = np.array([a_copy[0],a_copy[1]])
-        a = a/np.linalg.norm(a)
-        camera_azimuth = np.arccos(np.dot(a,np.array([1,0])))/np.pi*180
-        camera_zenith = np.arccos(np.dot(a_copy,np.array([0,0,1])))/np.pi*180
-        
-        
-        fig, ax = plt.subplots(figsize=(10,10))
-        CS_alpha = ax.contour(psi_h,psi_v,alpha,colors='k',linestyles='dashed')
-        ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt)
-        CS_beta = ax.contour(psi_h,psi_v,beta,colors='k',linestyles='dashed')
-        ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt)
-        ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}$'.format(azimuth=azimuth,zenith=zenith,
-                                                                    c_azi=camera_azimuth,c_theta=camera_zenith))
-        plt.show()
-    return {'psi_h':psi_h,'psi_v':psi_v,'alpha':alpha,'beta':beta}
     
     
 

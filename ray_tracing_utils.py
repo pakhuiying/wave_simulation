@@ -823,7 +823,8 @@ def load_daughter_rays(save_fp):
 
     """
     data_list = []
-    save_fp_list = [join(save_fp,i) for i in listdir(save_fp) if i.endswith(".json")]
+    save_fp_list = [join(save_fp,i) for i in sorted(listdir(save_fp)) if i.endswith(".json")]
+    print(save_fp_list)
     for save_fp in save_fp_list:
         with open(save_fp, 'r') as fp:
             data = json.load(fp)
@@ -966,6 +967,19 @@ class GlitterPattern:
         get glitter locations in terms of camera viewing angles in wind-based coordinate system
         returns a tuple (psi_h,psi_v) in deg
         """
+        # #matrix for rotating wind based vector to sun-based vector such that we are viewing wrt to the specular direction of sun rays
+        # wind_to_sun_mat = wind_to_sun_rot(self.phi_prime)
+        # # get xi_prime and camera-axis (a) in sun-based coordinate system
+        # xi_r = np.dot(wind_to_sun_mat,xi_r) # (xi_x,xi_y,xi_z)
+        # a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
+        # t_h = -self.f*xi_r[1]/np.dot(xi_r,a)
+        # t_v = self.f*(xi_r[0]*a[2]-xi_r[2]*a[0])/np.dot(xi_r,a)
+        # psi_h = np.arctan(t_h/self.f)/np.pi*180
+        # psi_v = np.arctan(t_v/self.f)/np.pi*180
+        # if ((psi_h < self.fov_h) and (psi_h > -self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
+        #     return (psi_h,psi_v)
+        # else:
+        #     return None, None
         t_h = self.f*np.dot(xi_r,self.h)/np.dot(xi_r,self.camera_axis)
         t_v = self.f*np.dot(xi_r,self.v)/np.dot(xi_r,self.camera_axis)
         xi_h = self.f*self.camera_axis + t_h*self.h #should be a unit vector
@@ -975,9 +989,11 @@ class GlitterPattern:
         psi_h = np.arccos(np.dot(xi_h,self.camera_axis))*np.sign(t_h)/np.pi*180
         psi_v = np.arccos(np.dot(xi_v,self.camera_axis))*np.sign(t_v)/np.pi*180
 
-        # contrain glittern pattern to camera viewing angles
-        if ((psi_h < self.fov_h) and (psi_h > self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
+        # contraint glittern pattern to camera viewing angles
+        if ((psi_h < self.fov_h) and (psi_h > -self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
             return (psi_h,psi_v)
+        else:
+            return None, None
 
     def plot_glitter_pattern(self):
         """
@@ -989,10 +1005,15 @@ class GlitterPattern:
             if bool(v1) is True: #check if dict is not empty
                 for v2 in v1.values():
                     xi_r = v2['DR']['xi_r']
+                    # print(xi_r)
                     if np.dot(xi_r,self.camera_axis) > 0: # camera axis and reflected ray is in the same direction
                         psi_h,psi_v = self.get_psi(xi_r)
-                        d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
-                        output.append(d)
+                        if (psi_h is not None) and (psi_v is not None):
+                            d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
+                            output.append(d)
+        ax = self.glitter_pattern_contour()
+        ax.plot([i['psi_h'] for i in output],[i['psi_v'] for i in output],'k.')
+        plt.show()
         
         return output
 
@@ -1009,7 +1030,7 @@ class GlitterPattern:
         xi_prime = np.dot(wind_to_sun_mat,self.xi_prime)
         a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
 
-        psi_h,psi_v = np.meshgrid(np.linspace(-self.fov_h,self.fov_h,n),np.linspace(self.fov_v_lower,self.fov_v_upper,self.n))
+        psi_h,psi_v = np.meshgrid(np.linspace(-self.fov_h,self.fov_h,self.n),np.linspace(self.fov_v_lower,self.fov_v_upper,self.n))
         alpha_list = []
         beta_list = []
         for p_h,p_v in zip(psi_h.flatten(),psi_v.flatten()):
@@ -1031,20 +1052,28 @@ class GlitterPattern:
 
         if self.plot is True:
             fontsize=8
-            def fmt(x):
-                s = f"{x:.0f}"
-                return f"{s}"
+
+            def fmt_alpha(x):
+                s = r"$\alpha={x:.0f}$".format(x=x)
+                return s
+
+            def fmt_beta(x):
+                s = r"$\beta={x:.0f}$".format(x=x)
+                return s
 
             
             fig, ax = plt.subplots(figsize=(10,10))
             CS_alpha = ax.contour(psi_h,psi_v,alpha,colors='k',linestyles='dashed')
-            ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt)
+            ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt_alpha)
             CS_beta = ax.contour(psi_h,psi_v,beta,colors='k',linestyles='dashed')
-            ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt)
+            ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt_beta)
             ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}$'.format(azimuth=self.solar_azimuth,zenith=self.solar_zenith,
                                                                         c_azi=self.camera_azimuth,c_theta=self.camera_zenith))
-            plt.show()
-        return {'psi_h':psi_h,'psi_v':psi_v,'alpha':alpha,'beta':beta}
+            # plt.show()
+            return ax
+
+        else:
+            return {'psi_h':psi_h,'psi_v':psi_v,'alpha':alpha,'beta':beta}
 
 def wind_to_sun_rot(phi_prime):
     """

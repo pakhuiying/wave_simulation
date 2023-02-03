@@ -139,9 +139,9 @@ class TIP:
         self.r_1_hat = rtc.r_1_hat
         self.r_2_hat = rtc.r_2_hat
         self.gamma = rtc.gamma
-        self.i = np.array([1,0,0])
-        self.j = np.array([0,1,0])
-        self.k = np.array([0,0,1])
+        self.i = rtc.i#np.array([1,0,0])
+        self.j = rtc.j#np.array([0,1,0])
+        self.k = rtc.k#np.array([0,0,1])
         self.k = k
         self.index = index
         self.s = s
@@ -234,9 +234,9 @@ class HexagonalDomain:
         vertices_dict (dict): where keys are the vertices coordinates (str); values are the unique index (int) for each vertex
         nodes_dict (dict): where keys are the unique index (int) in vertices_dict; and values are the (3,) np.array of the nodes coordinate 
         """
-        self.i = np.array([1,0,0])
-        self.j = np.array([0,1,0])
-        self.k = np.array([0,0,1])
+        self.i = rtc.i#np.array([1,0,0])
+        self.j = rtc.j#np.array([0,1,0])
+        self.k = rtc.k#np.array([0,0,1])
         self.n = n
         self.delta = rtc.delta
         self.eps = rtc.eps
@@ -356,9 +356,9 @@ class RayTracing:
         HD (class HexagonalDomain): class that contains attributes of the surface wave facet
         P_prime (int): unit radiant flux of 1
         """
-        self.i = np.array([1,0,0])
-        self.j = np.array([0,1,0])
-        self.k = np.array([0,0,1])
+        self.i = rtc.i#np.array([1,0,0])
+        self.j = rtc.j#np.array([0,1,0])
+        self.k = rtc.k#np.array([0,0,1])
         self.delta = rtc.delta
         self.eps = rtc.eps
         self.gamma = rtc.gamma
@@ -861,10 +861,11 @@ def parse_solar_attributes(key_name):
     """
     key_name (str): key name of data list (loaded from load_daughter_rays)
     """
-    alt,azi = key_name.split('_')
+    alt,azi,U = key_name.split('_')
     alt = float(alt.replace('solaralt',''))
     azi = float(azi.replace('solarazi',''))
-    return (alt,azi)
+    U = float(U.replace('windspeed',''))
+    return (alt,azi,U)
 
 
 def plot_daughter_rays(data_list,elev=90,azim = 270):
@@ -923,9 +924,9 @@ def multiple_scattering(data_list,thresh=1):
     thresh (int): threshold of multiple scattering
     returns % of ray tracing that goes through multiple scattering to produce > thresh daughter rays
     """
-    ms = []
-    for l in data_list:
-        ms.append(len([k for k,v in l.items() if len(v) > thresh])/len(l.keys())*100)
+    ms = dict()
+    for k,l in data_list.items():
+        ms[k] = len([k for k,v in l.items() if len(v) > thresh])/len(l.keys())*100
     return ms
 
 class GlitterPattern:
@@ -969,23 +970,42 @@ class GlitterPattern:
         self.j = rtc.j#np.array([0,1,0])
 
         # calculate solar angles wrt to wind-based direction
-        self.ray_azimuth = np.arctan(self.xi_prime[1]/self.xi_prime[0]) + np.pi #angle (in rad) between i and ray direction (phi)
-        self.phi_prime = self.ray_azimuth # angle in rad
+        ray_azimuth = np.arctan(self.xi_prime[1]/self.xi_prime[0])  #angle (in rad) between i and ray direction (phi)
         self.ray_zenith = np.arccos(self.xi_prime[2])
-        # self.phi_prime = np.arccos(np.dot(self.i,self.x)) #angle between x and i in rad
+
+        if np.sign(self.xi_prime[1]) >= 0 and np.sign(self.xi_prime[0]) >= 0:
+            self.ray_azimuth = ray_azimuth
+            self.solar_azimuth = ray_azimuth + np.pi
+        elif np.sign(self.xi_prime[1]) >= 0 and np.sign(self.xi_prime[0]) < 0:
+            self.ray_azimuth = ray_azimuth + np.pi
+            self.solar_azimuth = ray_azimuth
+        elif np.sign(self.xi_prime[1]) < 0 and np.sign(self.xi_prime[0]) < 0:
+            self.ray_azimuth = ray_azimuth + np.pi
+            self.solar_azimuth = ray_azimuth
+        else:
+            self.ray_azimuth = 2*np.pi + ray_azimuth
+            self.solar_azimuth = self.ray_azimuth - np.pi
+
+        self.phi_prime = self.ray_azimuth # angle in rad #angle between x and i in rad
+        
         # # location of light source
-        self.solar_azimuth = np.arctan(self.xi_prime[1]/self.xi_prime[0])
-        self.solar_zenith = np.pi - self.ray_zenith
-        # self.solar_azimuth = (self.phi_prime - np.pi)/np.pi*180 #phi_s (angle between i and light source) in deg
-        # self.solar_zenith = np.arccos(np.dot(-self.xi_prime,self.z))/np.pi*180 # zenith of light source in deg
+        self.solar_zenith = (np.pi - self.ray_zenith)/np.pi*180 # in deg
+        self.solar_azimuth = self.solar_azimuth/np.pi*180 # in deg
         
         # camera location wrt to wind-based direction
-        a = np.array([self.camera_axis[0],self.camera_axis[1]])
-        a = a/np.linalg.norm(a)
-        self.camera_azimuth = np.arctan(self.camera_axis[1]/self.camera_axis[0])/np.pi*180 #in deg
+        # self.camera_azimuth = np.arctan(self.camera_axis[1]/self.camera_axis[0])/np.pi*180 #in deg
         self.camera_zenith = np.arccos(self.camera_axis[2])/np.pi*180 #in deg
-        # self.camera_azimuth = np.arccos(np.dot(a,np.array([1,0])))/np.pi*180 #in deg
-        # self.camera_zenith = np.arccos(np.dot(self.camera_axis,self.k))/np.pi*180 #in deg
+        camera_azimuth = np.arctan(self.camera_axis[1]/self.camera_axis[0])  #angle (in rad) between i and ray direction (phi)
+        if np.sign(self.camera_axis[1]) >= 0 and np.sign(self.camera_axis[0]) >= 0:
+            self.camera_azimuth = camera_azimuth
+        elif np.sign(self.camera_axis[1]) >= 0 and np.sign(self.camera_axis[0]) < 0:
+            self.camera_azimuth = camera_azimuth + np.pi
+        elif np.sign(self.camera_axis[1]) < 0 and np.sign(self.camera_axis[0]) < 0:
+            self.camera_azimuth = camera_azimuth + np.pi
+        else:
+            self.camera_azimuth = 2*np.pi + camera_azimuth
+        
+        self.camera_azimuth = self.camera_azimuth/np.pi*180
         # camera viewing angle in deg
         self.fov_v_upper = 90 - self.camera_zenith #viewing angle of camera that corresponds to looking toward ocean horizon
         self.fov_v_lower = -self.camera_zenith
@@ -1027,12 +1047,12 @@ class GlitterPattern:
         # xi_v = xi_v/np.linalg.norm(xi_v)
         # psi_h = np.arccos(np.dot(xi_h,self.camera_axis))*np.sign(t_h)/np.pi*180
         # psi_v = np.arccos(np.dot(xi_v,self.camera_axis))*np.sign(t_v)/np.pi*180
-        return (psi_h,psi_v)
-        # # contraint glittern pattern to camera viewing angles
-        # if ((psi_h < self.fov_h) and (psi_h > -self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
-        #     return (psi_h,psi_v)
-        # else:
-        #     return None, None
+        # return (psi_h,psi_v)
+        # contraint glittern pattern to camera viewing angles
+        if ((psi_h < self.fov_h) and (psi_h > -self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
+            return (psi_h,psi_v)
+        else:
+            return None, None
 
     def plot_glitter_pattern(self):
         """

@@ -13,11 +13,11 @@ from tqdm import tqdm
 from collections import deque #to implement stack
 
 class BoundaryPoints:
-    def __init__(self,HD, solar_altitude,azimuth,step):
+    def __init__(self,HD, solar_altitude,solar_azimuth,step):
         """
         HD (HexagonalDomain class)
-        solar_altitude (float): in degrees, angle between horizontal surface to "sun"
-        azimuth (float): in degrees, angle between ray and east (+ve i direction)
+        solar_altitude (float): in degrees, angle between horizontal surface to location of "sun"
+        solar_azimuth (float): in degrees, angle between location of sun and +ve i direction
         step (float): subdivisions to divide the slanted_length/horizontal_length
         
         # n (int): order of HD
@@ -32,10 +32,10 @@ class BoundaryPoints:
         """
         self.n = HD.n
         self.n_max = HD.n_max
-        self.solar_altitude = solar_altitude/180*np.pi
-        self.azimuth = azimuth/180*np.pi
-        self.zenith = np.pi/2 - self.solar_altitude
-        self.d = np.tan(self.zenith)*self.n_max
+        self.solar_altitude = solar_altitude/180*np.pi #in rad
+        self.solar_azimuth = solar_azimuth/180*np.pi #in rad
+        self.solar_zenith = np.pi/2 - self.solar_altitude #in rad
+        self.d = np.tan(self.solar_zenith)*self.n_max
         self.delta = rtc.delta
         self.eps = rtc.eps
         self.gamma = rtc.gamma
@@ -107,7 +107,16 @@ class BoundaryPoints:
         """
         returns unit xi_prime, directed downwards, towards azimuth
         """
-        xi_prime = np.array([self.d*np.cos(self.azimuth),self.d*np.sin(self.azimuth),-self.n_max]) # target where the ray hits the horizontal surface i.e. distance from p_h to target
+        # location of sun
+        theta_s = self.solar_zenith 
+        phi_s = self.solar_azimuth
+        # direction of where ray is travelling
+        theta = np.pi - theta_s
+        phi = (phi_s + np.pi)%(2*np.pi) #modulo 360
+        self.ray_zenith = theta
+        self.ray_azimuth = phi
+        xi_prime = np.array([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)])
+        # xi_prime = np.array([self.d*np.cos(self.azimuth),self.d*np.sin(self.azimuth),-self.n_max]) # target where the ray hits the horizontal surface i.e. distance from p_h to target
         t = xi_prime/np.linalg.norm(xi_prime) # ray is directed
         # lambda_t = lambda t,p: t + np.array([p[0],p[1],0])
         # points_within_HD = self.get_points_within_HD()
@@ -712,10 +721,10 @@ def recursive_RayTracing(stack,store_list,HD):
         # print(store_list)
         return recursive_RayTracing(stack,store_list,HD)
 
-def RayTrace(solar_altitude,azimuth,save_fp,prefix,n=7,step=0.3):
+def RayTrace(solar_altitude,solar_azimuth,save_fp,prefix,n=7,step=0.3):
     """
-    solar_altitude (float): in degrees, angle between horizontal surface to "sun"
-    azimuth (float): in degrees, angle between ray and east (+ve i direction)
+    solar_altitude (float): in degrees, angle between horizontal surface to location of "sun"
+    solar_azimuth (float): in degrees, angle between location of sun and east (+ve i direction)
     save_fp (str): filepath to folder
     prefix (str): prefix appended to file name
     n (int): order of HexagonalDomain
@@ -736,7 +745,7 @@ def RayTrace(solar_altitude,azimuth,save_fp,prefix,n=7,step=0.3):
     # axes.plot_trisurf(triang,n_dist, linewidth=0.2, antialiased=True,cmap=plt.cm.Spectral,alpha=0.5) #3d surface
     # plt.show()
 
-    BP = BoundaryPoints(HD,solar_altitude,azimuth, step)
+    BP = BoundaryPoints(HD,solar_altitude,solar_azimuth, step)
     xi_prime = BP.get_xi_prime()
     points_within_HD = BP.get_points_within_HD()
 
@@ -822,11 +831,12 @@ def load_daughter_rays(save_fp):
                     target (list): point on the horizontal surface which the ray strikes
 
     """
-    data_list = []
-    save_fp_list = [join(save_fp,i) for i in sorted(listdir(save_fp)) if i.endswith(".json")]
+    data_list = dict()
+    save_fp_list = [i for i in sorted(listdir(save_fp)) if i.endswith(".json")]
     print(save_fp_list)
-    for save_fp in save_fp_list:
-        with open(save_fp, 'r') as fp:
+    for fp in save_fp_list:
+        key_name = fp.replace('_DaughterRays.json','')
+        with open(join(save_fp,fp), 'r') as fp:
             data = json.load(fp)
 
         for i,v in data.items(): #where i is the xi_prime index, v is a dict
@@ -843,7 +853,7 @@ def load_daughter_rays(save_fp):
                 data[i][j]['WF']['target'] = np.array(data[i][j]['WF']['target'])
         
         data_copy = {int(i):{int(j):v_2 for j,v_2 in v_1.items()} for i,v_1 in data.items()}
-        data_list.append(data_copy)
+        data_list[key_name] = data_copy
 
     return data_list
 
@@ -967,11 +977,14 @@ class GlitterPattern:
         get glitter locations in terms of camera viewing angles in wind-based coordinate system
         returns a tuple (psi_h,psi_v) in deg
         """
-        # #matrix for rotating wind based vector to sun-based vector such that we are viewing wrt to the specular direction of sun rays
+        #matrix for rotating wind based vector to sun-based vector such that we are viewing wrt to the specular direction of sun rays
         # wind_to_sun_mat = wind_to_sun_rot(self.phi_prime)
-        # # get xi_prime and camera-axis (a) in sun-based coordinate system
+        # get xi_prime and camera-axis (a) in sun-based coordinate system
         # xi_r = np.dot(wind_to_sun_mat,xi_r) # (xi_x,xi_y,xi_z)
+        # xi_r = xi_r/np.linalg.norm(xi_r) #change into unit vector
         # a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
+        # a = a/np.linalg.norm(a) #unit vector
+        # a = self.camera_axis
         # t_h = -self.f*xi_r[1]/np.dot(xi_r,a)
         # t_v = self.f*(xi_r[0]*a[2]-xi_r[2]*a[0])/np.dot(xi_r,a)
         # psi_h = np.arctan(t_h/self.f)/np.pi*180
@@ -980,20 +993,27 @@ class GlitterPattern:
         #     return (psi_h,psi_v)
         # else:
         #     return None, None
-        t_h = self.f*np.dot(xi_r,self.h)/np.dot(xi_r,self.camera_axis)
-        t_v = self.f*np.dot(xi_r,self.v)/np.dot(xi_r,self.camera_axis)
-        xi_h = self.f*self.camera_axis + t_h*self.h #should be a unit vector
-        xi_h = xi_h/np.linalg.norm(xi_h)
-        xi_v = self.f*self.camera_axis + t_v*self.v #should be a unit vector
-        xi_v = xi_v/np.linalg.norm(xi_v)
-        psi_h = np.arccos(np.dot(xi_h,self.camera_axis))*np.sign(t_h)/np.pi*180
-        psi_v = np.arccos(np.dot(xi_v,self.camera_axis))*np.sign(t_v)/np.pi*180
-
-        # contraint glittern pattern to camera viewing angles
-        if ((psi_h < self.fov_h) and (psi_h > -self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
-            return (psi_h,psi_v)
-        else:
-            return None, None
+        wind_to_sun_mat = wind_to_sun_rot(self.phi_prime)
+        xi_r = np.dot(wind_to_sun_mat,xi_r) # (xi_x,xi_y,xi_z)
+        xi_r = xi_r/np.linalg.norm(xi_r) #change into unit vector
+        a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
+        a = a/np.linalg.norm(a) #unit vector
+        t_h = self.f*np.dot(xi_r,self.h)/np.dot(xi_r,a)
+        t_v = self.f*np.dot(xi_r,self.v)/np.dot(xi_r,a)
+        psi_h = np.arctan(t_h/self.f)/np.pi*180
+        psi_v = np.arctan(t_v/self.f)/np.pi*180
+        # xi_h = self.f*self.camera_axis + t_h*self.h #should be a unit vector
+        # xi_h = xi_h/np.linalg.norm(xi_h)
+        # xi_v = self.f*self.camera_axis + t_v*self.v #should be a unit vector
+        # xi_v = xi_v/np.linalg.norm(xi_v)
+        # psi_h = np.arccos(np.dot(xi_h,self.camera_axis))*np.sign(t_h)/np.pi*180
+        # psi_v = np.arccos(np.dot(xi_v,self.camera_axis))*np.sign(t_v)/np.pi*180
+        return (psi_h,psi_v)
+        # # contraint glittern pattern to camera viewing angles
+        # if ((psi_h < self.fov_h) and (psi_h > -self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
+        #     return (psi_h,psi_v)
+        # else:
+        #     return None, None
 
     def plot_glitter_pattern(self):
         """
@@ -1005,12 +1025,21 @@ class GlitterPattern:
             if bool(v1) is True: #check if dict is not empty
                 for v2 in v1.values():
                     xi_r = v2['DR']['xi_r']
-                    # print(xi_r)
+                    if 'xi_t' in v2['DR'].keys():
+                        xi_t = v2['DR']['xi_t']
+                    else:
+                        xi_t = None
                     if np.dot(xi_r,self.camera_axis) > 0: # camera axis and reflected ray is in the same direction
                         psi_h,psi_v = self.get_psi(xi_r)
                         if (psi_h is not None) and (psi_v is not None):
                             d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
                             output.append(d)
+                    if (xi_t is not None) and (np.dot(xi_t,self.camera_axis) > 0):
+                        psi_h,psi_v = self.get_psi(xi_t)
+                        if (psi_h is not None) and (psi_v is not None):
+                            d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
+                            output.append(d)
+
         ax = self.glitter_pattern_contour()
         ax.plot([i['psi_h'] for i in output],[i['psi_v'] for i in output],'k.')
         plt.show()
@@ -1028,8 +1057,9 @@ class GlitterPattern:
         wind_to_sun_mat = wind_to_sun_rot(self.phi_prime)
         # get xi_prime and camera-axis (a) in sun-based coordinate system
         xi_prime = np.dot(wind_to_sun_mat,self.xi_prime)
+        xi_prime = xi_prime/np.linalg.norm(xi_prime)
         a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
-
+        a = a/np.linalg.norm(a)
         psi_h,psi_v = np.meshgrid(np.linspace(-self.fov_h,self.fov_h,self.n),np.linspace(self.fov_v_lower,self.fov_v_upper,self.n))
         alpha_list = []
         beta_list = []
@@ -1042,13 +1072,17 @@ class GlitterPattern:
             xi = np.array([xi_x,xi_y,xi_z])
             n = (xi - xi_prime)
             n = n/np.linalg.norm(n) #wrt to sun-based coordinate
-            alpha = np.arctan(-n[1]/n[0])/np.pi*180 #azimuth angle wrt sun-based coordinate system
+            alpha = np.arctan(-n[1]/n[0])/np.pi*180 #azimuth angle wrt sun-based coordinate system, positive clockwise from i
+            # if p_v <= 0:
+            #     alpha = alpha + 180
+            # elif p_v > 0 and p_h <= 0:
+            #     alpha = 360 + alpha
             beta = np.arccos(n[2])/np.pi*180 #tilt angle wrt sun-based coordinate system
             alpha_list.append(alpha)
             beta_list.append(beta)
         
-        alpha = np.array(alpha_list).reshape(psi_h.shape)
-        beta = np.array(beta_list).reshape(psi_h.shape)
+        alpha = np.array(alpha_list).reshape(psi_h.shape) # azimuth angle of wave facet, positive clockwise from i
+        beta = np.array(beta_list).reshape(psi_h.shape) # tilt angle of wave facet
 
         if self.plot is True:
             fontsize=8
@@ -1067,8 +1101,11 @@ class GlitterPattern:
             ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt_alpha)
             CS_beta = ax.contour(psi_h,psi_v,beta,colors='k',linestyles='dashed')
             ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt_beta)
-            ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}$'.format(azimuth=self.solar_azimuth,zenith=self.solar_zenith,
-                                                                        c_azi=self.camera_azimuth,c_theta=self.camera_zenith))
+            ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}$'.format(
+                                                                azimuth=self.solar_azimuth,zenith=self.solar_zenith,
+                                                                c_azi=self.camera_azimuth,c_theta=self.camera_zenith))
+            ax.set_xlabel(r'$\psi_h$')
+            ax.set_ylabel(r'$\psi_v$')
             # plt.show()
             return ax
 

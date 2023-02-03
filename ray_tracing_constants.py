@@ -34,3 +34,8 @@ solar_altitude = 70 #degrees
 
 m_a = 1 #index of refraction of air
 m_w = 4/3 #index of refraction of water
+
+# wind based coordinate system
+i = np.array([1,0,0])
+j = np.array([0,1,0])
+k = np.array([0,0,1])

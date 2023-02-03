@@ -857,6 +857,16 @@ def load_daughter_rays(save_fp):
 
     return data_list
 
+def parse_solar_attributes(key_name):
+    """
+    key_name (str): key name of data list (loaded from load_daughter_rays)
+    """
+    alt,azi = key_name.split('_')
+    alt = float(alt.replace('solaralt',''))
+    azi = float(azi.replace('solarazi',''))
+    return (alt,azi)
+
+
 def plot_daughter_rays(data_list,elev=90,azim = 270):
     """
     data_list (dict): dictionary that contains multiple scattering of daughter rays
@@ -931,13 +941,15 @@ class GlitterPattern:
         """
         self.data_list = data_list
         # camera position is fixed with f and a
+
         self.xi_prime = xi_prime/np.linalg.norm(xi_prime) # direction of the sun rays (must be fixed since sun location is fixed at an instance of wave surface realisation)
+
         self.f = f # distance from S along camera axis direction
         # a = xi_prime - 2*np.dot(xi_prime,self.z)*self.z # camera axis direction (a)
         self.camera_axis = camera_axis/np.linalg.norm(camera_axis)
 
         # sun-based coordinate system in wind-based coordinates
-        self.z = np.array([0,0,1]) #same as wind_based
+        self.z = rtc.k#np.array([0,0,1]) #same as wind_based
         x = np.array([self.xi_prime[0],self.xi_prime[1],0]) #x is in the same direction as xi_prime
         self.x = x/np.linalg.norm(x)
         y = np.cross(self.z,self.x)
@@ -953,20 +965,27 @@ class GlitterPattern:
 
         # wind-based coordinate system
         self.k = self.z
-        self.i = np.array([1,0,0])
-        self.j = np.array([0,1,0])
+        self.i = rtc.i#np.array([1,0,0])
+        self.j = rtc.j#np.array([0,1,0])
 
         # calculate solar angles wrt to wind-based direction
-        self.phi_prime = np.arccos(np.dot(self.i,self.x)) #angle between x and i in rad
-        # location of light source
-        self.solar_azimuth = (self.phi_prime - np.pi)/np.pi*180 #phi_s (angle between i and light source) in deg
-        self.solar_zenith = np.arccos(np.dot(-self.xi_prime,self.z))/np.pi*180 # zenith of light source in deg
+        self.ray_azimuth = np.arctan(self.xi_prime[1]/self.xi_prime[0]) + np.pi #angle (in rad) between i and ray direction (phi)
+        self.phi_prime = self.ray_azimuth # angle in rad
+        self.ray_zenith = np.arccos(self.xi_prime[2])
+        # self.phi_prime = np.arccos(np.dot(self.i,self.x)) #angle between x and i in rad
+        # # location of light source
+        self.solar_azimuth = np.arctan(self.xi_prime[1]/self.xi_prime[0])
+        self.solar_zenith = np.pi - self.ray_zenith
+        # self.solar_azimuth = (self.phi_prime - np.pi)/np.pi*180 #phi_s (angle between i and light source) in deg
+        # self.solar_zenith = np.arccos(np.dot(-self.xi_prime,self.z))/np.pi*180 # zenith of light source in deg
         
         # camera location wrt to wind-based direction
         a = np.array([self.camera_axis[0],self.camera_axis[1]])
         a = a/np.linalg.norm(a)
-        self.camera_azimuth = np.arccos(np.dot(a,np.array([1,0])))/np.pi*180 #in deg
-        self.camera_zenith = np.arccos(np.dot(self.camera_axis,self.k))/np.pi*180 #in deg
+        self.camera_azimuth = np.arctan(self.camera_axis[1]/self.camera_axis[0])/np.pi*180 #in deg
+        self.camera_zenith = np.arccos(self.camera_axis[2])/np.pi*180 #in deg
+        # self.camera_azimuth = np.arccos(np.dot(a,np.array([1,0])))/np.pi*180 #in deg
+        # self.camera_zenith = np.arccos(np.dot(self.camera_axis,self.k))/np.pi*180 #in deg
         # camera viewing angle in deg
         self.fov_v_upper = 90 - self.camera_zenith #viewing angle of camera that corresponds to looking toward ocean horizon
         self.fov_v_lower = -self.camera_zenith

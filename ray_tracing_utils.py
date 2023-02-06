@@ -1032,13 +1032,16 @@ class GlitterPattern:
         #     return (psi_h,psi_v)
         # else:
         #     return None, None
+        # xi_r = xi_r/np.linalg.norm(xi_r) #change into unit vector
         wind_to_sun_mat = wind_to_sun_rot(self.phi_prime)
         xi_r = np.dot(wind_to_sun_mat,xi_r) # (xi_x,xi_y,xi_z)
-        xi_r = xi_r/np.linalg.norm(xi_r) #change into unit vector
+        # xi_r = xi_r/np.linalg.norm(xi_r) #change into unit vector
         a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
-        a = a/np.linalg.norm(a) #unit vector
-        t_h = self.f*np.dot(xi_r,self.h)/np.dot(xi_r,a)
-        t_v = self.f*np.dot(xi_r,self.v)/np.dot(xi_r,a)
+        # a = a/np.linalg.norm(a) #unit vector
+        t_h = -self.f*xi_r[1]/np.dot(xi_r,a)
+        t_v = self.f*(xi_r[0]*a[2] - xi_r[2]*a[0])/np.dot(xi_r,a)
+        # t_h = self.f*np.dot(xi_r,self.h)/np.dot(xi_r,a)
+        # t_v = self.f*np.dot(xi_r,self.v)/np.dot(xi_r,a)
         psi_h = np.arctan(t_h/self.f)/np.pi*180
         psi_v = np.arctan(t_v/self.f)/np.pi*180
         # xi_h = self.f*self.camera_axis + t_h*self.h #should be a unit vector
@@ -1050,9 +1053,9 @@ class GlitterPattern:
         # return (psi_h,psi_v)
         # contraint glittern pattern to camera viewing angles
         if ((psi_h < self.fov_h) and (psi_h > -self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
-            return (psi_h,psi_v)
+            return {'psi_h':psi_h,'psi_v':psi_v,'t_h':t_h,'t_v':t_v}#(psi_h,psi_v)
         else:
-            return None, None
+            return None#None, None
 
     def plot_glitter_pattern(self):
         """
@@ -1069,15 +1072,15 @@ class GlitterPattern:
                     else:
                         xi_t = None
                     if np.dot(xi_r,self.camera_axis) > 0: # camera axis and reflected ray is in the same direction
-                        psi_h,psi_v = self.get_psi(xi_r)
-                        if (psi_h is not None) and (psi_v is not None):
-                            d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
-                            output.append(d)
+                        psi = self.get_psi(xi_r)
+                        if psi is not None:
+                            # d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
+                            output.append(psi)
                     if (xi_t is not None) and (np.dot(xi_t,self.camera_axis) > 0):
-                        psi_h,psi_v = self.get_psi(xi_t)
-                        if (psi_h is not None) and (psi_v is not None):
-                            d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
-                            output.append(d)
+                        psi = self.get_psi(xi_t)
+                        if psi is not None:
+                            # d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
+                            output.append(psi)
 
         ax = self.glitter_pattern_contour()
         ax.plot([i['psi_h'] for i in output],[i['psi_v'] for i in output],'k.')

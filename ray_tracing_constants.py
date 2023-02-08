@@ -13,13 +13,13 @@ gamma = np.sqrt((delta/2)**2 + eps**2)
 
 n = 2 #order of the hexagonal grid
 
-U = 10 # wind speed: 10 m/s
-sigma_a = a_u*U
-sigma_c = 0.003 + a_c*U
-sigma = sigma_a + sigma_c
+U = 1 # wind speed: 10 m/s
+# sigma_a = a_u*U
+# sigma_c = 0.003 + a_c*U
+# sigma = sigma_a + sigma_c
 
-sigma = 0.003 + 5.12e-3*U
-
+# sigma = 0.003 + 5.12e-3*U
+sigma = delta*(a_u/2*U)**0.5
 
 r_11 = delta/(2*gamma)
 r_21 = eps/gamma
@@ -37,5 +37,5 @@ m_w = 4/3 #index of refraction of water
 
 # wind based coordinate system
 i = np.array([1,0,0])
-j = np.array([0,1,0])
 k = np.array([0,0,1])
+j = np.cross(k,i)#np.array([0,1,0])

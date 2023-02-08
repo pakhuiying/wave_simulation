@@ -721,6 +721,43 @@ def recursive_RayTracing(stack,store_list,HD):
         # print(store_list)
         return recursive_RayTracing(stack,store_list,HD)
 
+def RayTrace_timeseries(solar_altitude,solar_azimuth,save_fp,prefix,n=7,iter=5000):
+    xi_prime = get_xi_prime(solar_altitude,solar_azimuth)
+    np.random.seed(seed=4)
+    # t = np.array([0,0,0]) # middle of the hexagonal domain
+    p_prime = -xi_prime
+    dr_over_HD = {i:None for i in range(iter)}
+    for i in tqdm(range(iter),desc="Rays to trace:"):
+        HD = HexagonalDomain(n)
+        x,y = HD.x, HD.y
+        n_dist = np.random.normal(loc=0,scale = rtc.sigma,size = x.shape[0])
+        HD.get_nodes(n_dist)
+        
+        # multiple_scattering = []
+        # initialise first incident ray
+        
+        S = deque()
+        L = []
+
+        RT = RayTracing(p_prime,xi_prime,HD)
+
+        dr_list = RT.main()
+        if len(dr_list) > 0: #push into s if dr_list is not empty
+            for dr in dr_list:
+                S.append(dr)
+                L.append(dr)
+
+        # recursive ray tracing
+        all_daughter_rays = recursive_RayTracing(S,L,HD) #list of DRs from multiple scattering
+        # print('{}. Number of daughter rays: {}'.format(index,len(all_daughter_rays)))
+
+        dr_over_HD[i] = all_daughter_rays
+
+    # Save results
+    save_daughter_rays(dr_over_HD,save_fp = save_fp,prefix=prefix)
+    return 
+
+
 def RayTrace(solar_altitude,solar_azimuth,save_fp,prefix,n=7,step=0.3):
     """
     solar_altitude (float): in degrees, angle between horizontal surface to location of "sun"
@@ -733,7 +770,7 @@ def RayTrace(solar_altitude,solar_azimuth,save_fp,prefix,n=7,step=0.3):
     HD = HexagonalDomain(n)
     x,y = HD.x, HD.y
     np.random.seed(seed=4)
-    n_dist = np.random.normal(loc=0,scale = np.sqrt(rtc.sigma),size = x.shape[0])
+    n_dist = np.random.normal(loc=0,scale = rtc.sigma,size = x.shape[0])
     HD.get_nodes(n_dist) # will add the attributes n_dist and nodes_dict to class
     # triang = mpl.tri.Triangulation(x, y) ## Triangulate parameter space to determine the triangles using a Delaunay triangulation
 
@@ -833,7 +870,7 @@ def load_daughter_rays(save_fp):
     """
     data_list = dict()
     save_fp_list = [i for i in sorted(listdir(save_fp)) if i.endswith(".json")]
-    print(save_fp_list)
+    print(['{}:{}'.format(i,f.replace('_DaughterRays.json','')) for i,f in enumerate(save_fp_list)])
     for fp in save_fp_list:
         key_name = fp.replace('_DaughterRays.json','')
         with open(join(save_fp,fp), 'r') as fp:
@@ -1016,48 +1053,24 @@ class GlitterPattern:
         get glitter locations in terms of camera viewing angles in wind-based coordinate system
         returns a tuple (psi_h,psi_v) in deg
         """
-        #matrix for rotating wind based vector to sun-based vector such that we are viewing wrt to the specular direction of sun rays
-        # wind_to_sun_mat = wind_to_sun_rot(self.phi_prime)
-        # get xi_prime and camera-axis (a) in sun-based coordinate system
-        # xi_r = np.dot(wind_to_sun_mat,xi_r) # (xi_x,xi_y,xi_z)
-        # xi_r = xi_r/np.linalg.norm(xi_r) #change into unit vector
-        # a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
-        # a = a/np.linalg.norm(a) #unit vector
-        # a = self.camera_axis
-        # t_h = -self.f*xi_r[1]/np.dot(xi_r,a)
-        # t_v = self.f*(xi_r[0]*a[2]-xi_r[2]*a[0])/np.dot(xi_r,a)
-        # psi_h = np.arctan(t_h/self.f)/np.pi*180
-        # psi_v = np.arctan(t_v/self.f)/np.pi*180
-        # if ((psi_h < self.fov_h) and (psi_h > -self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
-        #     return (psi_h,psi_v)
-        # else:
-        #     return None, None
-        # xi_r = xi_r/np.linalg.norm(xi_r) #change into unit vector
+        
+        xi_r = xi_r/np.linalg.norm(xi_r) #change into unit vector
         wind_to_sun_mat = wind_to_sun_rot(self.phi_prime)
         xi_r = np.dot(wind_to_sun_mat,xi_r) # (xi_x,xi_y,xi_z)
-        # xi_r = xi_r/np.linalg.norm(xi_r) #change into unit vector
         a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
-        # a = a/np.linalg.norm(a) #unit vector
         t_h = -self.f*xi_r[1]/np.dot(xi_r,a)
         t_v = self.f*(xi_r[0]*a[2] - xi_r[2]*a[0])/np.dot(xi_r,a)
         # t_h = self.f*np.dot(xi_r,self.h)/np.dot(xi_r,a)
         # t_v = self.f*np.dot(xi_r,self.v)/np.dot(xi_r,a)
         psi_h = np.arctan(t_h/self.f)/np.pi*180
         psi_v = np.arctan(t_v/self.f)/np.pi*180
-        # xi_h = self.f*self.camera_axis + t_h*self.h #should be a unit vector
-        # xi_h = xi_h/np.linalg.norm(xi_h)
-        # xi_v = self.f*self.camera_axis + t_v*self.v #should be a unit vector
-        # xi_v = xi_v/np.linalg.norm(xi_v)
-        # psi_h = np.arccos(np.dot(xi_h,self.camera_axis))*np.sign(t_h)/np.pi*180
-        # psi_v = np.arccos(np.dot(xi_v,self.camera_axis))*np.sign(t_v)/np.pi*180
-        # return (psi_h,psi_v)
         # contraint glittern pattern to camera viewing angles
         if ((psi_h < self.fov_h) and (psi_h > -self.fov_h)) and ((psi_v < self.fov_v_upper) and (psi_v > self.fov_v_lower)):
             return {'psi_h':psi_h,'psi_v':psi_v,'t_h':t_h,'t_v':t_v}#(psi_h,psi_v)
         else:
             return None#None, None
 
-    def plot_glitter_pattern(self):
+    def plot_glitter_pattern(self,fov_lower=None,fov_upper=None):
         """
         xi_r and a must face the same direction s.t. xi \cdot a > 0 such that specular glitter will appear on the image
         iterate across all reflected/transmitted ray and check if xi \cdot a > 0, then compute t_h and t_v
@@ -1082,13 +1095,13 @@ class GlitterPattern:
                             # d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
                             output.append(psi)
 
-        ax = self.glitter_pattern_contour()
+        ax = self.glitter_pattern_contour(fov_lower,fov_upper)
         ax.plot([i['psi_h'] for i in output],[i['psi_v'] for i in output],'k.')
         plt.show()
         
         return output
 
-    def glitter_pattern_contour(self):
+    def glitter_pattern_contour(self,fov_lower=None,fov_upper=None):
         """
         a (wind-based coordinate system)
         xi_prime (wind-based coordinate system)
@@ -1102,7 +1115,10 @@ class GlitterPattern:
         xi_prime = xi_prime/np.linalg.norm(xi_prime)
         a = np.dot(wind_to_sun_mat,self.camera_axis) #(a_x,a_y,a_z)
         a = a/np.linalg.norm(a)
-        psi_h,psi_v = np.meshgrid(np.linspace(-self.fov_h,self.fov_h,self.n),np.linspace(self.fov_v_lower,self.fov_v_upper,self.n))
+        if (fov_lower is not None) and (fov_upper is not None):
+            psi_h,psi_v = np.meshgrid(np.linspace(-self.fov_h,self.fov_h,self.n),np.linspace(fov_lower,fov_upper,self.n))
+        else:
+            psi_h,psi_v = np.meshgrid(np.linspace(-self.fov_h,self.fov_h,self.n),np.linspace(self.fov_v_lower,self.fov_v_upper,self.n))
         alpha_list = []
         beta_list = []
         for p_h,p_v in zip(psi_h.flatten(),psi_v.flatten()):
@@ -1146,6 +1162,7 @@ class GlitterPattern:
             ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}$'.format(
                                                                 azimuth=self.solar_azimuth,zenith=self.solar_zenith,
                                                                 c_azi=self.camera_azimuth,c_theta=self.camera_zenith))
+            ax.axes.set_aspect('equal')
             ax.set_xlabel(r'$\psi_h$')
             ax.set_ylabel(r'$\psi_v$')
             # plt.show()
@@ -1176,7 +1193,21 @@ def sun_to_wind_rot(phi_prime):
                 [np.sin(phi_prime),np.cos(phi_prime),0],
                 [0,0,1]])
 
-
+def get_xi_prime(solar_altitude,solar_azimuth):
+    """
+    returns unit xi_prime, directed downwards, towards azimuth
+    """
+    # location of sun
+    solar_zenith = (90 - solar_altitude)
+    theta_s = solar_zenith/180*np.pi
+    phi_s = solar_azimuth/180*np.pi
+    # direction of where ray is travelling
+    theta = np.pi - theta_s
+    phi = (phi_s + np.pi)%(2*np.pi) #modulo 360
+    xi_prime = np.array([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)])
+    t = xi_prime/np.linalg.norm(xi_prime) # ray is directed
+    
+    return t
     
     
 

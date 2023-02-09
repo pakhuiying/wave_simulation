@@ -11,6 +11,7 @@ from os.path import join, exists
 from os import mkdir,listdir
 from tqdm import tqdm
 from collections import deque #to implement stack
+from option import args
 
 class BoundaryPoints:
     def __init__(self,HD, solar_altitude,solar_azimuth,step):
@@ -721,7 +722,7 @@ def recursive_RayTracing(stack,store_list,HD):
         # print(store_list)
         return recursive_RayTracing(stack,store_list,HD)
 
-def RayTrace_timeseries(solar_altitude,solar_azimuth,save_fp,prefix,n=7,iter=5000):
+def RayTrace_timeseries(solar_altitude,solar_azimuth,wind_speed,save_fp,n=7,iter=5000):
     xi_prime = get_xi_prime(solar_altitude,solar_azimuth)
     np.random.seed(seed=4)
     t = np.array([rtc.delta/2,rtc.eps/2,0]) # near the middle of the hexagonal domain, did not put it in the origin as it sits at the intersection of triads
@@ -730,7 +731,8 @@ def RayTrace_timeseries(solar_altitude,solar_azimuth,save_fp,prefix,n=7,iter=500
     for i in tqdm(range(iter),desc="Rays to trace:"):
         HD = HexagonalDomain(n)
         x,y = HD.x, HD.y
-        n_dist = np.random.normal(loc=0,scale = rtc.sigma,size = x.shape[0])
+        sigma = rtc.delta*(rtc.a_u/2*wind_speed)**0.5
+        n_dist = np.random.normal(loc=0,scale = sigma,size = x.shape[0])
         HD.get_nodes(n_dist)
         
         # multiple_scattering = []
@@ -753,15 +755,24 @@ def RayTrace_timeseries(solar_altitude,solar_azimuth,save_fp,prefix,n=7,iter=500
 
         dr_over_HD[i] = all_daughter_rays
 
+    
     # Save results
-    save_daughter_rays(dr_over_HD,save_fp = save_fp,prefix=prefix)
-    return 
+    prefix = "solaralt{}_solarazi{}_windspeed{}".format(str(solar_altitude).zfill(2),
+                                                                str(solar_azimuth).zfill(3),
+                                                                str(wind_speed).zfill(2))
+    
+    if save_fp is not None: 
+        save_daughter_rays(dr_over_HD,save_fp = save_fp,prefix=prefix)
+    
+    return organise_daughter_rays(dr_over_HD)
 
 
-def RayTrace(solar_altitude,solar_azimuth,save_fp,prefix,n=7,step=0.3):
+
+def RayTrace(solar_altitude,solar_azimuth,wind_speed,save_fp,n=7,step=0.3):
     """
     solar_altitude (float): in degrees, angle between horizontal surface to location of "sun"
     solar_azimuth (float): in degrees, angle between location of sun and east (+ve i direction)
+    wind_speed (float): wind speed (in m/s) measured at an anemometer height of 12.5 m above mean sea level
     save_fp (str): filepath to folder
     prefix (str): prefix appended to file name
     n (int): order of HexagonalDomain
@@ -770,7 +781,8 @@ def RayTrace(solar_altitude,solar_azimuth,save_fp,prefix,n=7,step=0.3):
     HD = HexagonalDomain(n)
     x,y = HD.x, HD.y
     np.random.seed(seed=4)
-    n_dist = np.random.normal(loc=0,scale = rtc.sigma,size = x.shape[0])
+    sigma = rtc.delta*(rtc.a_u/2*wind_speed)**0.5
+    n_dist = np.random.normal(loc=0,scale = sigma,size = x.shape[0])
     HD.get_nodes(n_dist) # will add the attributes n_dist and nodes_dict to class
     # triang = mpl.tri.Triangulation(x, y) ## Triangulate parameter space to determine the triangles using a Delaunay triangulation
 
@@ -809,8 +821,27 @@ def RayTrace(solar_altitude,solar_azimuth,save_fp,prefix,n=7,step=0.3):
         dr_over_HD[index] = all_daughter_rays
 
     # Save results
-    save_daughter_rays(dr_over_HD,save_fp = save_fp,prefix=prefix)
-    return 
+    prefix = "solaralt{}_solarazi{}_windspeed{}".format(str(solar_altitude).zfill(2),
+                                                                str(solar_azimuth).zfill(3),
+                                                                str(wind_speed).zfill(2))
+    if save_fp is not None: 
+        save_daughter_rays(dr_over_HD,save_fp = save_fp,prefix=prefix)
+    return dr_over_HD
+
+def organise_daughter_rays(daughter_rays):
+    for index,dr_list in daughter_rays.items(): #where keys are the index of xi_prime rays, values are list of DaughterRay class
+        DR_dict = {i: {'DR': dict(),'WF': dict()} for i,_ in enumerate(dr_list)}#{0:{'DR':None,'WF':None},1:{'DR':None,'WF':None}}
+
+        for i,dr in enumerate(dr_list):
+            for k,v in vars(dr).items():
+                if isinstance(v,float) or isinstance(v,np.ndarray):
+                    DR_dict[i]['DR'][k] = v
+            for k,v in vars(dr.WF).items():
+                DR_dict[i]['WF'][k] = v
+
+        daughter_rays[index] = DR_dict
+
+    return daughter_rays
 
 def save_daughter_rays(daughter_rays,save_fp,prefix):
     """
@@ -967,7 +998,7 @@ def multiple_scattering(data_list,thresh=1):
     return ms
 
 class GlitterPattern:
-    def __init__(self,data_list,xi_prime,camera_axis,f=1,fov_h=30,n=100,plot=True):
+    def __init__(self,data_list,xi_prime,camera_axis,wind_speed,f=1,fov_h=30,n=100,plot=True):
         """
         data_list (dict): keys are:
             indices of xi_prime
@@ -978,6 +1009,7 @@ class GlitterPattern:
         n (int): number of points to generate the contour lines of alpha and beta
         """
         self.data_list = data_list
+        self.wind_speed = wind_speed
         # camera position is fixed with f and a
 
         self.xi_prime = xi_prime/np.linalg.norm(xi_prime) # direction of the sun rays (must be fixed since sun location is fixed at an instance of wave surface realisation)
@@ -1159,9 +1191,9 @@ class GlitterPattern:
             ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt_alpha)
             CS_beta = ax.contour(psi_h,psi_v,beta,colors='k',linestyles='dashed')
             ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt_beta)
-            ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}$'.format(
+            ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}, U = {wind_speed:.1f} m/s$'.format(
                                                                 azimuth=self.solar_azimuth,zenith=self.solar_zenith,
-                                                                c_azi=self.camera_azimuth,c_theta=self.camera_zenith))
+                                                                c_azi=self.camera_azimuth,c_theta=self.camera_zenith,wind_speed=self.wind_speed))
             ax.axes.set_aspect('equal')
             ax.set_xlabel(r'$\psi_h$')
             ax.set_ylabel(r'$\psi_v$')
@@ -1208,9 +1240,28 @@ def get_xi_prime(solar_altitude,solar_azimuth):
     t = xi_prime/np.linalg.norm(xi_prime) # ray is directed
     
     return t
-    
-    
 
+def get_camera_vector(camera_altitude, camera_azimuth):
+    """
+    returns location of camera
+    """
+    camera_zenith = (90 - camera_altitude)
+    theta_c = camera_zenith/180*np.pi
+    phi_c = camera_azimuth/180*np.pi
+    xi_prime = np.array([np.sin(theta_c)*np.cos(phi_c),np.sin(theta_c)*np.sin(phi_c),np.cos(theta_c)])
+    t = xi_prime/np.linalg.norm(xi_prime)
+    return t
 
 if __name__ == '__main__':
-    RayTrace(args)
+    # raytracing
+    daughter_rays = RayTrace_timeseries(args.solar_altitude, 
+                        args.solar_azimuth, 
+                        args.wind_speed, 
+                        save_fp=args.save_fp, 
+                        n=args.n, 
+                        iter=args.iter)
+    # plot glitter
+    xi_prime = get_xi_prime(args.solar_altitude,args.solar_azimuth)
+    camera_axis = get_camera_vector(args.camera_altitude, args.camera_azimuth)
+    GP = GlitterPattern(daughter_rays,xi_prime,camera_axis,args.wind_speed)
+    GP.plot_glitter_pattern()

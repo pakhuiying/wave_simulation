@@ -11,13 +11,13 @@ delta = 1 #along wind
 eps = np.sqrt((3*a_u)/(4*a_c)) #cross wind
 gamma = np.sqrt((delta/2)**2 + eps**2)
 
-U = 1 # wind speed: 10 m/s
+# U = 1 # wind speed: 10 m/s
 # sigma_a = a_u*U
 # sigma_c = 0.003 + a_c*U
 # sigma = sigma_a + sigma_c
 
 # sigma = 0.003 + 5.12e-3*U
-sigma = delta*(a_u/2*U)**0.5
+# sigma = delta*(a_u/2*U)**0.5
 
 r_11 = delta/(2*gamma)
 r_21 = eps/gamma

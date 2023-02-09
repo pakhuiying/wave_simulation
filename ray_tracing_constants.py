@@ -11,8 +11,6 @@ delta = 1 #along wind
 eps = np.sqrt((3*a_u)/(4*a_c)) #cross wind
 gamma = np.sqrt((delta/2)**2 + eps**2)
 
-n = 2 #order of the hexagonal grid
-
 U = 1 # wind speed: 10 m/s
 # sigma_a = a_u*U
 # sigma_c = 0.003 + a_c*U
@@ -29,8 +27,6 @@ r_1 = np.array([r_11,r_21,0])
 r_2 = np.array([r_12,r_22,0])
 r_1_hat = np.array([-r_21,r_11,0])
 r_2_hat = np.array([-r_22,r_12,0])
-
-solar_altitude = 70 #degrees
 
 m_a = 1 #index of refraction of air
 m_w = 4/3 #index of refraction of water

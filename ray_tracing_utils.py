@@ -724,8 +724,8 @@ def recursive_RayTracing(stack,store_list,HD):
 def RayTrace_timeseries(solar_altitude,solar_azimuth,save_fp,prefix,n=7,iter=5000):
     xi_prime = get_xi_prime(solar_altitude,solar_azimuth)
     np.random.seed(seed=4)
-    # t = np.array([0,0,0]) # middle of the hexagonal domain
-    p_prime = -xi_prime
+    t = np.array([rtc.delta/2,rtc.eps/2,0]) # near the middle of the hexagonal domain, did not put it in the origin as it sits at the intersection of triads
+    p_prime = t-xi_prime
     dr_over_HD = {i:None for i in range(iter)}
     for i in tqdm(range(iter),desc="Rays to trace:"):
         HD = HexagonalDomain(n)

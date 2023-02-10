@@ -8,7 +8,7 @@ The notebook `Cox_Munk_wave.ipynb` contains a step-by-step guide and mathematica
 Preisendorfer, R. W., & Mobley, C. D. (1985). Unpolarized Irradiance Reflectances and Glitter Patterns of Random Capillary Waves on Lakes and Seas. Monte Carlo Simulation. NOAA Technical Memorandum ERL PMEL-63.
 
 ### Command-line interface
-Alternatively, one can also run the python script for command-line interface, where user can specify:
+Alternatively, one can also run the python script `ray_tracing_utils.py` for command-line interface, where user can specify:
 
 - `--solar_altitude`: solar_altitude (angle in deg from the horizontal)
 - `--solar_azimuth`: solar_azimuth (angle in deg from the i axis (along wind direction))
@@ -21,6 +21,16 @@ Alternatively, one can also run the python script for command-line interface, wh
 
 See `-h` for help and details on input
 
-## Output
+## Outputs
 
-![glitter pattern](images/output.png 'glitter pattern simulation')
+Sun gliter distribution at varying solar altitude, azimuth and camera altitude and azimuth.
+
+![glitter pattern](images/output1.png 'glitter pattern simulation')
+
+![glitter pattern](images/output2.png 'glitter pattern simulation')
+
+![glitter pattern](images/output3.png 'glitter pattern simulation')
+
+![glitter pattern](images/output4.png 'glitter pattern simulation')
+
+![glitter pattern](images/output5.png 'glitter pattern simulation')

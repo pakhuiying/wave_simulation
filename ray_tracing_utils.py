@@ -213,7 +213,7 @@ class DaughterRay:
         """
         DR (DaughterRay class)
         """
-        if (self.theta_t is not None) and (self.xi_t is not None):
+        if (isinstance(self.theta_t,float)) and (isinstance(self.xi_t,np.ndarray)): #(self.theta_t is not None) and (self.xi_t is not None):
             reflectance_theta_prime = 0.5*((np.sin(self.theta_r - self.theta_t)/np.sin(self.theta_r+self.theta_t))**2 + (np.tan(self.theta_r - self.theta_t)/np.tan(self.theta_r+self.theta_t))**2)
             return reflectance_theta_prime #r(\xi_prime \cdot n)
         else: #if Total Internal Reflection (TIR) occurs
@@ -689,7 +689,10 @@ class RayTracing:
 
 def recursive_RayTracing(stack,store_list,HD):
     """
-    returns a list of DaughterRay class
+    returns a list of typle: (idx, DaughterRay class),
+        where the idx represents the series of path that a parent ray takes until the ray is traced up until that point.
+        e.g. 0_r_t means that the parent ray is 0, and its reflected (r) daughter ray and the subsequent transmitted (t) daughter ray gave rise to the ray up until that point
+        Note that only rays which hits a ray facet are considered, if they dont hit a ray facet, then they dont produce subsequent rays and will not have an entry
     """
     if len(stack) == 0:
         # print('store_list len'.format(len(store_list)))
@@ -699,25 +702,27 @@ def recursive_RayTracing(stack,store_list,HD):
     else:
         # print(len(stack))
         # print("Enter recursion")
-        s_pop = stack.pop() #DR
+        idx, s_pop = stack.pop() #DR
         RT = RayTracing(s_pop.WF.target,s_pop.xi_r,HD)
         dr_list = RT.main()
+        daughter_idx =  idx + '_r' # reflected ray is postfixed with r
         # print('dr_list reflected:{}'.format(len(dr_list)))
         if len(dr_list) > 0: #push into s if dr_list is not empty
             # print('push reflected rays')
             for dr in dr_list:
-                store_list.append(dr)
-                stack.append(dr)
+                store_list.append((daughter_idx,dr)) #store daughter indx
+                stack.append((daughter_idx,dr))
         
         if s_pop.xi_t is not None:
             RT = RayTracing(s_pop.WF.target,s_pop.xi_t,HD)
             dr_list = RT.main()
+            daughter_idx =  idx + '_t' # transmitted ray is postfixed with r
             # print('dr_list refracted:{}'.format(len(dr_list)))
             if len(dr_list) > 0: #push into s if dr_list is not empty
                 # print('push refracted rays')
                 for dr in dr_list:
-                    store_list.append(dr)
-                    stack.append(dr)
+                    store_list.append((daughter_idx,dr))
+                    stack.append((daughter_idx,dr))
         # print('Length of list: {}'.format(len(store_list)))
         # print(store_list)
         return recursive_RayTracing(stack,store_list,HD)
@@ -745,9 +750,9 @@ def RayTrace_timeseries(solar_altitude,solar_azimuth,wind_speed,save_fp,n=7,iter
 
         dr_list = RT.main()
         if len(dr_list) > 0: #push into s if dr_list is not empty
-            for dr in dr_list:
-                S.append(dr)
-                L.append(dr)
+            for j,dr in enumerate(dr_list):
+                S.append((str(j),dr)) # seed parent rays and store their index
+                L.append((str(j),dr))
 
         # recursive ray tracing
         all_daughter_rays = recursive_RayTracing(S,L,HD) #list of DRs from multiple scattering
@@ -763,8 +768,9 @@ def RayTrace_timeseries(solar_altitude,solar_azimuth,wind_speed,save_fp,n=7,iter
     
     if save_fp is not None: 
         save_daughter_rays(dr_over_HD,save_fp = save_fp,prefix=prefix)
-    
-    return organise_daughter_rays(dr_over_HD)
+        return dr_over_HD#organise_daughter_rays(dr_over_HD)
+    else:
+        organise_daughter_rays(dr_over_HD)
 
 
 
@@ -810,9 +816,9 @@ def RayTrace(solar_altitude,solar_azimuth,wind_speed,save_fp,n=7,step=0.3):
 
         dr_list = RT.main()
         if len(dr_list) > 0: #push into s if dr_list is not empty
-            for dr in dr_list:
-                S.append(dr)
-                L.append(dr)
+            for j,dr in enumerate(dr_list):
+                S.append((str(j),dr)) # seed parent rays and store their index
+                L.append((str(j),dr))
 
         # recursive ray tracing
         all_daughter_rays = recursive_RayTracing(S,L,HD) #list of DRs from multiple scattering
@@ -829,10 +835,12 @@ def RayTrace(solar_altitude,solar_azimuth,wind_speed,save_fp,n=7,step=0.3):
     return dr_over_HD
 
 def organise_daughter_rays(daughter_rays):
-    for index,dr_list in daughter_rays.items(): #where keys are the index of xi_prime rays, values are list of DaughterRay class
-        DR_dict = {i: {'DR': dict(),'WF': dict()} for i,_ in enumerate(dr_list)}#{0:{'DR':None,'WF':None},1:{'DR':None,'WF':None}}
+    for index,dr_list in daughter_rays.items(): #where keys are the index of xi_prime rays, values are list of tuple: (idx, DaughterRay class)
+        # DR_dict = {i: {'DR': dict(),'WF': dict()} for i,_ in enumerate(dr_list)}#{0:{'DR':None,'WF':None},1:{'DR':None,'WF':None}}
+        DR_dict = {i: {'DR': dict(),'WF': dict()} for i,_ in dr_list}
 
-        for i,dr in enumerate(dr_list):
+        # for i,dr in enumerate(dr_list):
+        for i,dr in dr_list:
             for k,v in vars(dr).items():
                 if isinstance(v,float) or isinstance(v,np.ndarray):
                     DR_dict[i]['DR'][k] = v
@@ -854,9 +862,11 @@ def save_daughter_rays(daughter_rays,save_fp,prefix):
         mkdir(save_fp)
 
     for index,dr_list in daughter_rays.items(): #where keys are the index of xi_prime rays, values are list of DaughterRay class
-        DR_dict = {i: {'DR': dict(),'WF': dict()} for i,_ in enumerate(dr_list)}#{0:{'DR':None,'WF':None},1:{'DR':None,'WF':None}}
+        # DR_dict = {i: {'DR': dict(),'WF': dict()} for i,_ in enumerate(dr_list)}#{0:{'DR':None,'WF':None},1:{'DR':None,'WF':None}}
+        DR_dict = {i: {'DR': dict(),'WF': dict()} for i,_ in dr_list}
 
-        for i,dr in enumerate(dr_list):
+        # for i,dr in enumerate(dr_list):
+        for i,dr in dr_list:
             for k,v in vars(dr).items():
                 if type(v) == np.ndarray:
                     DR_dict[i]['DR'][k] = v.tolist()
@@ -897,7 +907,6 @@ def load_daughter_rays(save_fp):
                     nodes (list of list): nodes of a wave facet (3 vertices)
                     norm (list): unit normal vector of a wave facet's normal
                     target (list): point on the horizontal surface which the ray strikes
-
     """
     data_list = dict()
     save_fp_list = [i for i in sorted(listdir(save_fp)) if i.endswith(".json")]
@@ -920,10 +929,62 @@ def load_daughter_rays(save_fp):
                 data[i][j]['WF']['norm'] = np.array(data[i][j]['WF']['norm'])
                 data[i][j]['WF']['target'] = np.array(data[i][j]['WF']['target'])
         
-        data_copy = {int(i):{int(j):v_2 for j,v_2 in v_1.items()} for i,v_1 in data.items()}
+        # data_copy = {int(i):{int(j):v_2 for j,v_2 in v_1.items()} for i,v_1 in data.items()}
+        data_copy = {int(i):{j:v_2 for j,v_2 in v_1.items()} for i,v_1 in data.items()}
         data_list[key_name] = data_copy
 
     return data_list
+
+def tally_reflectance_transmittance(daughter_rays,P_prime=1):
+    """
+    daughter_rays (dict): keys are:
+        indices (str): if indices are digits, they are parent rays from light source, else, they are daughter rays/descendants
+            DR (str)
+                p_prime
+                xi_prime: parent ray
+                xi_r: daughter ray
+                xi_t: daughter ray
+                theta_r
+                theta_t
+                fresnel_reflectance
+                fresnel_transmittance
+            WF (str): wave facet
+                nodes
+                norm
+                tilt
+                target: location where xi_prime intersects with wave facet to produce xi_r and xi_t
+    P_prime (int): unit radiant flux of 1
+    """
+    daughter_rays_copy = daughter_rays.copy()
+
+    def recursive_radiance(idx):
+        if 'radiance' in daughter_rays_copy[idx].keys():
+            # end recursion condition
+            return daughter_rays_copy[idx]['radiance']
+        elif idx.isdigit():
+            # end recursion condition
+            daughter_rays_copy[idx]['radiance'] = P_prime
+            return P_prime
+        else:
+            if idx.endswith('_t'):
+                idx_parent = idx[:-2]
+                if 'fresnel_transmittance' not in daughter_rays[idx_parent]['DR'].keys():
+                    daughter_rays[idx_parent]['DR']['fresnel_transmittance'] = 0
+                parent_radiance = daughter_rays[idx_parent]['DR']['fresnel_transmittance']
+                # daughter_rays_copy[idx_parent]['radiance'] = recursive_radiance(idx_parent)
+                return parent_radiance*recursive_radiance(idx_parent)
+            else:
+                idx_parent = idx[:-2]
+                if 'fresnel_reflectance' not in daughter_rays[idx_parent]['DR'].keys():
+                    daughter_rays[idx_parent]['DR']['fresnel_reflectance'] = 1
+                parent_radiance = daughter_rays[idx_parent]['DR']['fresnel_reflectance']
+                # daughter_rays_copy[idx_parent]['radiance'] = recursive_radiance(idx_parent)
+                return parent_radiance*recursive_radiance(idx_parent)
+
+    
+    for k in daughter_rays.keys():
+        daughter_rays_copy[k]['radiance'] = recursive_radiance(k)
+    return daughter_rays_copy
 
 def parse_solar_attributes(key_name):
     """

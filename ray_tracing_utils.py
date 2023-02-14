@@ -935,7 +935,7 @@ def load_daughter_rays(save_fp):
 
     return data_list
 
-def tally_reflectance_transmittance(daughter_rays,P_prime=1):
+class IrradianceReflectance:
     """
     daughter_rays (dict): keys are:
         indices (str): if indices are digits, they are parent rays from light source, else, they are daughter rays/descendants
@@ -954,37 +954,154 @@ def tally_reflectance_transmittance(daughter_rays,P_prime=1):
                 tilt
                 target: location where xi_prime intersects with wave facet to produce xi_r and xi_t
     P_prime (int): unit radiant flux of 1
+    alpha (float) (0-inf): volume attenuation coefficient for the water to account for flux lost from the ray during water transmission. Setting alpha=0 in effect makes the water transparent. 
+        Setting alpha = inf eliminates any multiple scattering effects arising from subsurface travels of daughter rays
     """
-    daughter_rays_copy = daughter_rays.copy()
+    def __init__(self, data_list, P_prime=1, alpha=0):
+        self.data_list = data_list
+        self.P_prime = P_prime
+        self.alpha = alpha
+    
+    def compute_radiance(self,daughter_rays):
+        """
+        daughter_rays (dict): keys are:
+            indices (str): if indices are digits, they are parent rays from light source, else, they are daughter rays/descendants
+                DR (str)
+                    p_prime
+                    xi_prime: parent ray
+                    xi_r: daughter ray
+                    xi_t: daughter ray
+                    theta_r
+                    theta_t
+                    fresnel_reflectance
+                    fresnel_transmittance
+                WF (str): wave facet
+                    nodes
+                    norm
+                    tilt
+                    target: location where xi_prime intersects with wave facet to produce xi_r and xi_t
+        P_prime (int): unit radiant flux of 1
+        alpha (float) (0-inf): volume attenuation coefficient for the water to account for flux lost from the ray during water transmission. Setting alpha=0 in effect makes the water transparent. 
+            Setting alpha = inf eliminates any multiple scattering effects arising from subsurface travels of daughter rays
+        """
+        daughter_rays_copy = daughter_rays.copy()
 
-    def recursive_radiance(idx):
-        if 'radiance' in daughter_rays_copy[idx].keys():
-            # end recursion condition
-            return daughter_rays_copy[idx]['radiance']
-        elif idx.isdigit():
-            # end recursion condition
-            daughter_rays_copy[idx]['radiance'] = P_prime
-            return P_prime
-        else:
-            if idx.endswith('_t'):
-                idx_parent = idx[:-2]
-                if 'fresnel_transmittance' not in daughter_rays[idx_parent]['DR'].keys():
-                    daughter_rays[idx_parent]['DR']['fresnel_transmittance'] = 0
-                parent_radiance = daughter_rays[idx_parent]['DR']['fresnel_transmittance']
-                # daughter_rays_copy[idx_parent]['radiance'] = recursive_radiance(idx_parent)
-                return parent_radiance*recursive_radiance(idx_parent)
+        def recursive_radiance(idx):
+            """
+            recursion with memoisation. Since memoisation overwrites the results, to run with new analysis, one will need to reload the original daughter_rays
+            """
+            if 'radiance' in daughter_rays_copy[idx].keys():
+                # end recursion condition
+                return daughter_rays_copy[idx]['radiance'] # memoisation to avoid computing repeatedly for other rays
+            elif idx.isdigit():
+                # end recursion condition
+                daughter_rays_copy[idx]['radiance'] = self.P_prime
+                return self.P_prime
             else:
                 idx_parent = idx[:-2]
-                if 'fresnel_reflectance' not in daughter_rays[idx_parent]['DR'].keys():
-                    daughter_rays[idx_parent]['DR']['fresnel_reflectance'] = 1
-                parent_radiance = daughter_rays[idx_parent]['DR']['fresnel_reflectance']
-                # daughter_rays_copy[idx_parent]['radiance'] = recursive_radiance(idx_parent)
-                return parent_radiance*recursive_radiance(idx_parent)
+                xi_prime = daughter_rays[idx_parent]['DR']['xi_prime']
+                WF_norm = daughter_rays[idx_parent]['WF']['norm']
+                if np.dot(xi_prime, WF_norm) > 0:
+                    t_parent = daughter_rays[idx_parent]['WF']['target']
+                    t_daughter = daughter_rays[idx]['WF']['target']
+                    d = np.linalg.norm(t_parent - t_daughter)
+                    exponential_factor = np.exp(-d*self.alpha)
+                else:
+                    exponential_factor = None
 
+                if idx.endswith('_t'):
+                    if 'fresnel_transmittance' not in daughter_rays[idx_parent]['DR'].keys():
+                        daughter_rays[idx_parent]['DR']['fresnel_transmittance'] = 0
+                    parent_radiance = daughter_rays[idx_parent]['DR']['fresnel_transmittance']
+                    
+                else:
+                    idx_parent = idx[:-2]
+                    if 'fresnel_reflectance' not in daughter_rays[idx_parent]['DR'].keys():
+                        daughter_rays[idx_parent]['DR']['fresnel_reflectance'] = 1
+                    parent_radiance = daughter_rays[idx_parent]['DR']['fresnel_reflectance']
+                    
+                parent_radiance = parent_radiance if exponential_factor is None else parent_radiance*exponential_factor
+                return parent_radiance*recursive_radiance(idx_parent)
+        
+        for k in daughter_rays.keys():
+            daughter_rays_copy[k]['radiance'] = recursive_radiance(k)
+
+        return daughter_rays_copy
+
+    def albedo(self):
+        """
+        albedo or irradiance reflectance r_(xi')
+        returns the ensemble average over all realisations of S(omega)
+        """
+        albedo_dict = dict()
+
+        for k,v in self.data_list.items():
+            if bool(v) is True:
+                r = self.compute_radiance(v)
+                for k1, v1 in r.items():
+                    v1['']
+
+
+        return albedo_dict
+
+class Node:
+    """
+    construct a binary tree from the indices of daughter_ray
+    child_key (str)
+    """
+    def __init__(self,key):
+        self.reflected = None
+        self.transmitted = None
+        self.key = key
+        self.root = None
+    def find_root(self):
+        if self.root is None and self.key.isdigit():
+            self.root = self.key
+        else:
+            self.find_root(self.key[:-2])
+
+
+
+    # def insert(self,key):
+    #     if key in self.key or self.key in key:
+    #         self.parent = Node(key[:-2])
+    #         if key.endswith('_r'):
+    #             if self.reflected is None:
+    #                 self.reflected = Node(key)
+    #             else:
+    #                 self.reflected.insert(key)
+    #         else:
+    #             if self.transmitted is None:
+    #                 self.transmitted = Node(key)
+    #             else:
+    #                 self.transmitted.insert(key)
+
+                
+
+    # def insert(self,key):
+    #     if self.parent_key:
+    #         if key in self.parent_key:#key[:-2] == self.parent_key:
+    #             if key[:-2] == self.parent_key:#
+    #                 if key.endswith('_r'):
+    #                     if self.reflected is None:
+    #                         self.reflected = Node(key)
+    #                 else:
+    #                     if self.transmitted is None:
+    #                         self.transmitted = Node(key)
+    #             else:
+    #                 if key.endswith('_r'):
+    #                     self.reflected.insert(key[:-2])
+    #                 else:
+    #                     self.transmitted.insert(key[:-2])
+    #     else:
+    #         self.parent_key = key
     
-    for k in daughter_rays.keys():
-        daughter_rays_copy[k]['radiance'] = recursive_radiance(k)
-    return daughter_rays_copy
+    # def PrintTree(self):
+    #     print(self.parent_key)
+    #     if self.reflected:
+    #         self.reflected.PrintTree()
+    #     if self.transmitted:
+    #         self.transmitted.PrintTree()
 
 def parse_solar_attributes(key_name):
     """

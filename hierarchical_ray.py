@@ -69,6 +69,10 @@ class Tree:
             return None
     
 class Forest:
+    """
+    inputs are keys of daughter rays
+    >>> grow_trees('2_r_t')
+    """
     def __init__(self):
         self.tree_list = {}
     
@@ -90,3 +94,9 @@ class Forest:
                 T = Tree(node)
                 parent_node = T.get_parent_node(node)
                 self.tree_list[parent_node.key] = parent_node
+    
+    def print_nodes(self):
+        if bool(self.tree_list):
+            for k,v in self.tree_list.items():
+                print(f'parent ray: {k}')
+                v.print_nodes()

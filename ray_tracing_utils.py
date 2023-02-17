@@ -1169,7 +1169,7 @@ def multiple_scattering(data_list,thresh=1):
     return ms
 
 class GlitterPattern:
-    def __init__(self,data_list,xi_prime,camera_axis,wind_speed,f=1,fov_h=30,n=100,plot=True):
+    def __init__(self,data_list,xi_prime,camera_axis,wind_speed,f=1,fov_h=30,n=100,ax=None,plot=True):
         """
         data_list (dict): keys are:
             indices of xi_prime
@@ -1181,6 +1181,7 @@ class GlitterPattern:
         """
         self.data_list = data_list
         self.wind_speed = wind_speed
+        self.ax = ax #axis to plot the figure
         # camera position is fixed with f and a
 
         self.xi_prime = xi_prime/np.linalg.norm(xi_prime) # direction of the sun rays (must be fixed since sun location is fixed at an instance of wave surface realisation)
@@ -1297,10 +1298,13 @@ class GlitterPattern:
                         if psi is not None:
                             # d = {'psi_h':psi_h,'psi_v':psi_v} # in degrees
                             output.append(psi)
-
-        ax = self.glitter_pattern_contour(fov_lower,fov_upper)
-        ax.plot([i['psi_h'] for i in output],[i['psi_v'] for i in output],'k.')
-        plt.show()
+        if self.ax is None:
+            ax = self.glitter_pattern_contour(fov_lower,fov_upper)
+            ax.plot([i['psi_h'] for i in output],[i['psi_v'] for i in output],'k.')
+            plt.show()
+        else:
+            self.glitter_pattern_contour(fov_lower,fov_upper)
+            self.ax.plot([i['psi_h'] for i in output],[i['psi_v'] for i in output],'k.')
         
         return output
 
@@ -1356,20 +1360,31 @@ class GlitterPattern:
                 s = r"$\beta={x:.0f}$".format(x=x)
                 return s
 
-            
-            fig, ax = plt.subplots(figsize=(10,10))
-            CS_alpha = ax.contour(psi_h,psi_v,alpha,colors='k',linestyles='dashed')
-            ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt_alpha)
-            CS_beta = ax.contour(psi_h,psi_v,beta,colors='k',linestyles='dashed')
-            ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt_beta)
-            ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}, U = {wind_speed:.1f} m/s$'.format(
-                                                                azimuth=self.solar_azimuth,zenith=self.solar_zenith,
-                                                                c_azi=self.camera_azimuth,c_theta=self.camera_zenith,wind_speed=self.wind_speed))
-            ax.axes.set_aspect('equal')
-            ax.set_xlabel(r'$\psi_h$')
-            ax.set_ylabel(r'$\psi_v$')
-            # plt.show()
-            return ax
+            if self.ax is not None:
+                CS_alpha = self.ax.contour(psi_h,psi_v,alpha,colors='k',linestyles='dashed')
+                self.ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt_alpha)
+                CS_beta = self.ax.contour(psi_h,psi_v,beta,colors='k',linestyles='dashed')
+                self.ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt_beta)
+                self.ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}, U = {wind_speed:.1f} m/s$'.format(
+                                                                    azimuth=self.solar_azimuth,zenith=self.solar_zenith,
+                                                                    c_azi=self.camera_azimuth,c_theta=self.camera_zenith,wind_speed=self.wind_speed))
+                self.ax.axes.set_aspect('equal')
+                self.ax.set_xlabel(r'$\psi_h$')
+                self.ax.set_ylabel(r'$\psi_v$')
+            else:
+                fig, ax = plt.subplots(figsize=(10,10))
+                CS_alpha = ax.contour(psi_h,psi_v,alpha,colors='k',linestyles='dashed')
+                ax.clabel(CS_alpha, inline=True, fontsize=fontsize,fmt=fmt_alpha)
+                CS_beta = ax.contour(psi_h,psi_v,beta,colors='k',linestyles='dashed')
+                ax.clabel(CS_beta, inline=True, fontsize=fontsize,fmt=fmt_beta)
+                ax.set_title(r'$\phi_s = {azimuth:.2f}, \theta_s = {zenith:.2f}; \phi_c = {c_azi:.2f}, \theta_c = {c_theta:.2f}, U = {wind_speed:.1f} m/s$'.format(
+                                                                    azimuth=self.solar_azimuth,zenith=self.solar_zenith,
+                                                                    c_azi=self.camera_azimuth,c_theta=self.camera_zenith,wind_speed=self.wind_speed))
+                ax.axes.set_aspect('equal')
+                ax.set_xlabel(r'$\psi_h$')
+                ax.set_ylabel(r'$\psi_v$')
+                # plt.show()
+                return ax
 
         else:
             return {'psi_h':psi_h,'psi_v':psi_v,'alpha':alpha,'beta':beta}

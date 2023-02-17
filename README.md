@@ -25,11 +25,15 @@ See `-h` for help and details on input
 
 Sun glitter distribution at varying solar altitude, azimuth and camera altitude and azimuth.
 
-![glitter pattern](images/output_grid_U1.png 'glitter pattern simulation')
+Wind speed: 1.0 m/s
 
-![glitter pattern](images/output_grid_U5.png 'glitter pattern simulation')
+![glitter pattern](images/output_grid_U1.jpg 'glitter pattern simulation')
+
+Wind speed: 5.0 m/s
+
+![glitter pattern](images/output_grid_U5.jpg 'glitter pattern simulation')
 
 
 ### Computing upward irradiance reflectance
 
-![irradiance graph](images/irradiance_graph.png 'irradiance graph')
+![irradiance graph](images/irradiance_graph.jpg 'irradiance graph')

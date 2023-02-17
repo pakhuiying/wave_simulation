@@ -23,14 +23,13 @@ See `-h` for help and details on input
 
 ## Outputs
 
-Sun gliter distribution at varying solar altitude, azimuth and camera altitude and azimuth.
+Sun glitter distribution at varying solar altitude, azimuth and camera altitude and azimuth.
 
-![glitter pattern](images/output1.png 'glitter pattern simulation')
+![glitter pattern](images/output_grid_U1.png 'glitter pattern simulation')
 
-![glitter pattern](images/output2.png 'glitter pattern simulation')
+![glitter pattern](images/output_grid_U5.png 'glitter pattern simulation')
 
-![glitter pattern](images/output3.png 'glitter pattern simulation')
 
-![glitter pattern](images/output4.png 'glitter pattern simulation')
+### Computing upward irradiance reflectance
 
-![glitter pattern](images/output5.png 'glitter pattern simulation')
+![irradiance graph](images/irradiance_graph.png 'irradiance graph')

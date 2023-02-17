@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import matplotlib.patches as mpatches
+from matplotlib.ticker import FormatStrFormatter
 from mpl_toolkits.mplot3d import Axes3D
 from math import ceil
 import json
@@ -1095,6 +1096,49 @@ class IrradianceReflectance:
 
         return albedo_dict
 
+def plot_irradiance_reflectance(data_list,P_prime=1):
+    """
+    returns a graph of irradiance reflectance as a function of wind_speed, solar altitude and azimuth
+    """
+    tally_irradiance = {int(parse_solar_attributes(k)[0]): dict() for k in data_list.keys()}
+
+    color_step = np.linspace(0,1,len(tally_irradiance.keys()))
+    for k in data_list.keys():
+        alt,azi,U = parse_solar_attributes(k)
+        tally_irradiance[int(alt)][int(azi)] = dict()
+
+    for k in data_list.keys():
+        alt,azi,U = parse_solar_attributes(k)
+        tally_irradiance[int(alt)][int(azi)][int(U)] = k
+
+    
+    plt.figure(figsize=(10,8))
+    for i, (alt, d) in zip(color_step,tally_irradiance.items()):
+        for azi, d1 in d.items():
+            albedo_U = [] # albedo as a function of windspeed
+            U_list = []
+            for U, key in d1.items():
+                ir = IrradianceReflectance(data_list[key])
+                albedo = ir.albedo()
+                avg_albedo = np.nansum([v for v in albedo.values()])/(len(albedo.keys())*P_prime)
+                albedo_U.append(avg_albedo)
+                U_list.append(U)
+            
+            if azi == 90:
+                label = f'crosswind, alt: {alt}'
+                plt.plot(U_list,albedo_U, linestyle='--',color=plt.cm.viridis(i),label=label)
+            else:
+                label = f'alongwind, alt: {alt}'
+                plt.plot(U_list,albedo_U,color=plt.cm.viridis(i),label=label)
+    plt.xlabel('Windspeed (m/s)')
+    plt.ylabel('Irradiance reflectance ratio')
+    plt.yscale("log")
+    plt.tick_params(axis='y', which='minor')
+    ax = plt.gca()
+    ax.yaxis.set_minor_formatter(FormatStrFormatter("%.3f"))
+    ax.yaxis.set_major_formatter(FormatStrFormatter("%.3f"))
+    plt.legend(loc='center left', bbox_to_anchor=(1,0.5))
+    plt.show()
 
 def parse_solar_attributes(key_name):
     """

@@ -650,13 +650,12 @@ class RayTracing:
             return DaughterRay(self.p_prime,self.xi_prime,theta_prime,theta_t, xi_r,xi_t,WF)
         else:
             #water incident case
-            theta_prime = np.arccos(abs(np.dot(self.xi_prime,WF.norm))) #equiv to theta_r
-            theta_t = np.arcsin(m*np.sin(theta_prime))
             xi_r = self.xi_prime - 2*np.dot(self.xi_prime,WF.norm)*WF.norm
+            theta_prime = np.arccos(abs(np.dot(self.xi_prime,WF.norm))) #equiv to theta_r
             if theta_prime > critical_angle: #if angle of incidence exceeds critical angle, Total Internal Reflection (TIR) will occur --> transmittance = 0
                 return DaughterRay(self.p_prime,self.xi_prime,theta_prime, None, xi_r,None,WF)
             else:
-                
+                theta_t = np.arcsin(m*np.sin(theta_prime))
                 c = np.dot(m*self.xi_prime,WF.norm) - (np.dot(m*self.xi_prime,WF.norm)**2 - m**2 + 1)**0.5
                 # xi_t = m*self.xi_prime - c*WF.norm
                 xi_t = m*self.xi_prime + c*WF.norm
@@ -871,12 +870,12 @@ def save_daughter_rays(daughter_rays,save_fp,prefix):
             for k,v in vars(dr).items():
                 if type(v) == np.ndarray:
                     DR_dict[i]['DR'][k] = v.tolist()
-                elif isinstance(v,float) is True:
+                elif isinstance(v,float) or isinstance(v,int):
                     DR_dict[i]['DR'][k] = v
             for k,v in vars(dr.WF).items():
                 if type(v) == np.ndarray:
                     DR_dict[i]['WF'][k] = v.tolist()
-                elif isinstance(v,float) is True:
+                elif isinstance(v,float) or isinstance(v,int):
                     DR_dict[i]['WF'][k] = v
                 else:
                     DR_dict[i]['WF'][k] = [i.tolist() for i in v]
@@ -957,6 +956,29 @@ class IrradianceReflectance:
     P_prime (int): unit radiant flux of 1
     alpha (float) (0-inf): volume attenuation coefficient for the water to account for flux lost from the ray during water transmission. Setting alpha=0 in effect makes the water transparent. 
         Setting alpha = inf eliminates any multiple scattering effects arising from subsurface travels of daughter rays
+    ======================================
+    TEST CASES
+    d = {0:{
+        '0':{'DR':{'xi_r':np.array([0,0,-1]),'fresnel_reflectance':0.5},'radiance':1},
+        '0_r':{'DR':{'xi_r':np.array([0,0,1]),'fresnel_reflectance':0.5,'xi_t':np.array([0,0,1]),'fresnel_transmittance':0.5},'radiance':0.5},
+        '0_r_r':{'DR':{'xi_r':np.array([0,0,-1]),'fresnel_reflectance':0.5,'xi_t':np.array([0,0,1]),'fresnel_transmittance':0.5},'radiance':0.25},
+        '0_r_r_r':{'DR':{'xi_r':np.array([0,0,-1]),'xi_t':np.array([0,0,1]),'fresnel_reflectance':0.5},'radiance':0.125},
+        '0_r_r_r_t':{'DR':{'xi_r':np.array([0,0,1]),'fresnel_reflectance':0.5},'radiance':0.0625},
+
+        '1':{'DR':{'xi_r':np.array([0,0,-1]),'fresnel_reflectance':0.5},'radiance':1},
+        '1_r':{'DR':{'xi_t':np.array([0,0,1]),'fresnel_reflectance':0.5,'xi_r':np.array([0,0,1]),'fresnel_transmittance':0.5},'radiance':0.5}
+        },
+    }
+
+    d = {0:{
+        '0':{'DR':{'xi_r':np.array([0,0,1]),'fresnel_reflectance':1},'radiance':1},
+        '1':{'DR':{'xi_r':np.array([0,0,1]),'fresnel_reflectance':1},'radiance':1},
+        '2':{'DR':{'xi_r':np.array([0,0,1]),'fresnel_reflectance':1},'radiance':1}
+        },
+    }
+    =======================================
+    >>> IR = IrradianceReflectance(data_list)
+    >>> IR.albedo() -> returns a dict of the reflectance for each parent ray (random sea surface realisation)
     """
     def __init__(self, data_list, P_prime=1, alpha=0):
         self.data_list = data_list
@@ -1067,15 +1089,11 @@ class IrradianceReflectance:
 
         for k,v in self.data_list.items():
             if bool(v) is True:
-                r = self.compute_radiance(v)
-                forest = Forest()
-                for k1, v1 in r.items():
-                    v1['']
-
+                v = self.compute_radiance(v)
+                L = self.recursive_upwelling_radiance(v)
+                albedo_dict[k] = np.nansum([np.nansum(l) for l in L])/(len(L)*self.P_prime)
 
         return albedo_dict
-
-
 
 
 def parse_solar_attributes(key_name):

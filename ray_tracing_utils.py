@@ -1212,6 +1212,53 @@ def multiple_scattering(data_list,thresh=1):
         ms[k] = len([k for k,v in l.items() if len(v) > thresh])/len(l.keys())*100
     return ms
 
+def plot_multiple_scattering(data_list):
+    """
+    plot multiple scattering as a function of wind speed, solar azimuth and altitude
+    """
+    tally_ms = {int(parse_solar_attributes(k)[0]): dict() for k in data_list.keys()}
+
+    color_step = np.linspace(0,1,len(tally_ms.keys()))
+    for k in data_list.keys():
+        alt,azi,U = parse_solar_attributes(k)
+        tally_ms[int(alt)][int(azi)] = dict()
+
+    for k in data_list.keys():
+        alt,azi,U = parse_solar_attributes(k)
+        tally_ms[int(alt)][int(azi)][int(U)] = k
+
+
+    plt.figure(figsize=(10,8))
+    for i, (alt, d) in zip(color_step,tally_ms.items()):
+        for azi, d1 in d.items():
+            ms_U = [] # multiple scattering as a function of windspeed
+            U_list = []
+            for U, key in d1.items():
+                U_list.append(U)
+                ms = dict()
+                for k,v in data_list[key].items():
+                    ms[k] = sum([False if ray_index.isdigit() else True for ray_index in v.keys()])
+                    
+                perc_ms = sum([v for v in ms.values()])/len(ms.keys())
+                ms_U.append(perc_ms)
+            if azi == 90:
+                label = f'crosswind, alt: {alt}'
+                plt.plot(U_list,ms_U, linestyle='--',color=plt.cm.viridis(i),label=label,linewidth=2)
+            else:
+                label = f'alongwind, alt: {alt}'
+                plt.plot(U_list,ms_U,color=plt.cm.viridis(i),label=label,linewidth=2)
+
+    plt.xlabel('Windspeed (m/s)')
+    plt.ylabel('Average multiple scattering')
+    plt.yscale("log")
+    plt.tick_params(axis='y', which='minor')
+    ax = plt.gca()
+    ax.yaxis.set_minor_formatter(FormatStrFormatter("%.4f"))
+    ax.yaxis.set_major_formatter(FormatStrFormatter("%.4f"))
+    plt.legend(loc='center left', bbox_to_anchor=(1,0.5))
+    plt.show()
+    return
+
 class GlitterPattern:
     def __init__(self,data_list,xi_prime,camera_axis,wind_speed,f=1,fov_h=30,n=100,ax=None,plot=True):
         """
